@@ -175,7 +175,7 @@
       const badge = document.getElementById('countBadge');
       badge.textContent = 'Chargement…';
       // Trie par date descendante pour avoir les plus récents d'abord
-      const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
+      const q = query(collection(db, 'declaration'), orderBy('timestamp', 'desc'));
       const snap = await getDocs(q);
       state.raw = [];
 
