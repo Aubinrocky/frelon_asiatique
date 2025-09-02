@@ -117,40 +117,14 @@
 
     // --- FIX formatage de la date pour Firestore Timestamp / ms / s / string ---
     function formatDate(ts) {
-      try {
-        if (!ts) return '—';
-        let d = null;
+  if (!ts) return '—';
+  const d = ts.toDate(); // Firestore Timestamp → JS Date
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
 
-        // Firestore Timestamp (a un .toDate)
-        if (typeof ts === 'object' && ts !== null && typeof ts.toDate === 'function') {
-          d = ts.toDate();
-        }
-        // Déjà une Date
-        else if (ts instanceof Date) {
-          d = ts;
-        }
-        // Nombre : détecte secondes vs millisecondes
-        else if (typeof ts === 'number') {
-          d = new Date(ts > 1e12 ? ts : ts * 1000);
-        }
-        // Chaîne ISO
-        else if (typeof ts === 'string') {
-          d = new Date(ts);
-        }
-
-        if (!(d instanceof Date) || isNaN(d.getTime())) return '—';
-
-        return d.toLocaleString('fr-FR', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-      } catch {
-        return '—';
-      }
-    }
 
     function makeMarker(d) {
       const color = d.type === 'nid' ? colors.nid : colors.frelon;
