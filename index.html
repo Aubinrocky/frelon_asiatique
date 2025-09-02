@@ -4,27 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Carte des signalements – Frelon asiatique (MVP)</title>
-  <!--
-    ⚙️ Comment déployer sur GitHub Pages
-    1) Crée un repo avec cet index.html à la racine
-    2) Commit & push
-    3) Settings > Pages > Build and deployment = Deploy from branch > main /(root)
-    4) Attends ~1-2 minutes, ton site sera en ligne
 
-    🔐 Firebase – à configurer
-    - Remplace le bloc firebaseConfig ci-dessous par tes clés Firebase
-    - Firestore : collection par défaut "reports" avec des docs de ce type :
-        type: "frelon" | "nid"   (string)
-        count: number             (ex: 5)
-        lat: number               (ex: 49.761)
-        lng: number               (ex: 4.717)
-        timestamp: string | number (ISO string ex: "2025-08-30T10:20:00Z" ou millis)
-        note?: string             (facultatif)
-    - Règles sécurité (MVP démo) : autoriser lecture publique, écriture via ton bot seulement
-      ⚠️ En prod, restreins les lectures (ex: via Cloud Functions ou règles avec conditions)
-  -->
-
-  <!-- Leaflet CSS -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -98,7 +78,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-    // 👉 Remplace par ta config
+    // 👉 config Firebase
     const firebaseConfig = {
     apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiKMo4vos4",
     authDomain: "frelonsasiatiques-d71cc.firebaseapp.com",
@@ -146,19 +126,19 @@
     function makeMarker(d) {
       const color = d.type === 'nid' ? colors.nid : colors.frelon;
       const marker = L.circleMarker([d.lat, d.lng], {
-        radius: Math.min(14, 6 + (Number(d.count)||0)),
+        radius: Math.min(14, 6 + (Number(d.quantity)||0)),
         color,
         fillColor: color,
         fillOpacity: 0.6,
         weight: 2
       });
       const title = d.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
-      const count = (d.count ?? '—');
-      const note = d.note ? `<br><em>${escapeHtml(d.note)}</em>` : '';
+      const quantity = (d.quantity ?? '—');
+      const description = d.description ? `<br><em>${escapeHtml(d.description)}</em>` : '';
       marker.bindPopup(`
         <strong>${title}</strong><br>
-        Quantité : ${count}<br>
-        Vu le : ${formatDate(d.timestamp)}${note}
+        Quantité : ${quantity}<br>
+        Vu le : ${formatDate(d.timestamp)}${description}
       `);
       marker.__type = d.type; // pour filtrer rapidement
       return marker;
@@ -211,9 +191,9 @@
           type,
           lat: d.lat,
           lng: d.lng,
-          count: typeof d.count === 'number' ? d.count : Number(d.count) || 0,
+          quantity: typeof d.quantity === 'number' ? d.quantity : Number(d.quantity) || 0,
           timestamp: d.timestamp ?? null,
-          note: d.note ?? ''
+          description: d.description ?? ''
         };
         state.raw.push(item);
         const marker = makeMarker(item);
