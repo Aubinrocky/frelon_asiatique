@@ -141,7 +141,7 @@
       marker.bindPopup(`
         <strong>${title}</strong><br>
         Quantité : ${quantity}<br>
-        Vu le : ${formatDate(d.timestamp)}${description}
+        Vu le : ${formatDate(d.timestamp)}
       `);
       marker.__type = d.type; // pour filtrer rapidement
       return marker;
