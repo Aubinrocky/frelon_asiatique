@@ -1,6 +1,3 @@
-Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** intégrée :
-
-```html
 <!doctype html>
 <html lang="fr">
 <head>
@@ -52,6 +49,8 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
         <div class="legend">
           <label><span class="dot dot-frelon"></span><input type="checkbox" id="toggleFrelon" checked> Frelons</label>
           <label><span class="dot dot-nid"></span><input type="checkbox" id="toggleNid" checked> Nids</label>
+          <!-- Toggle zone probable -->
+          <label><input type="checkbox" id="toggleZones" checked> Zone probable</label>
         </div>
         <button id="locateBtn" class="btn">📍 Autour de moi</button>
         <a class="btn" href="#" id="refreshBtn">🔄 Actualiser</a>
@@ -102,8 +101,10 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
     const state = {
       markers: [],
       raw: [],
-      heatLayer: null, // ⇐ heatmap
-      filters: { frelon: true, nid: true }
+      heatLayer: null, // heatmap
+      probLayers: [],  // cercles de zone probable
+      filters: { frelon: true, nid: true },
+      showZones: true
     };
 
     const colors = {
@@ -111,23 +112,80 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
       nid: '#e26a6a'     // rouge
     };
 
+    // ----- Modèle de localisation de nid (réglages) -----
+    const NEST = {
+      TIME_WINDOW_DAYS: 21, // on garde les frelons récents
+      TAU_DAYS: 14,         // décroissance temporelle
+      BETA: 0.7,            // pondération des quantités (sous-linéaire)
+      R95_M: 1000,          // rayon où ~95% de l'activité se trouve
+      GRID_STEP_M: 250,     // pas de grille (m)
+      PROB_P: 0.6           // cercle qui contient p de proba (ex. 60%)
+    };
+    NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95 = 1000 m
+
+    // --- Aides géo ---
+    function toRad(d){ return d*Math.PI/180; }
+    function haversineMeters(a, b){
+      const R = 6371000;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+      const sa = Math.sin(dLat/2), sb = Math.sin(dLng/2);
+      const h = sa*sa + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*sb*sb;
+      return 2*R*Math.asin(Math.sqrt(h));
+    }
+    function metersToDegLat(m){ return m / 111320; }
+    function metersToDegLng(m, lat){ return m / (111320 * Math.cos(toRad(lat))); }
+
+    // --- DBSCAN simple (pour plusieurs foyers éventuels) ---
+    function dbscan(points, epsMeters, minPts){
+      const n = points.length;
+      const labels = Array(n).fill(-1); // -1: non visité, -2: bruit, >=0: cluster id
+      let cid = 0;
+
+      function neighbors(i){
+        const res = [];
+        for (let j=0;j<n;j++){
+          if (i===j) continue;
+          const d = haversineMeters(points[i], points[j]);
+          if (d <= epsMeters) res.push(j);
+        }
+        return res;
+      }
+
+      for (let i=0;i<n;i++){
+        if (labels[i] !== -1) continue;
+        const neigh = neighbors(i);
+        if (neigh.length+1 < minPts){ labels[i] = -2; continue; } // bruit
+        labels[i] = cid;
+        const seeds = [...neigh];
+        for (let k=0;k<seeds.length;k++){
+          const j = seeds[k];
+          if (labels[j] === -2) labels[j] = cid;
+          if (labels[j] !== -1) continue;
+          labels[j] = cid;
+          const neighj = neighbors(j);
+          if (neighj.length+1 >= minPts){
+            for (const x of neighj){ if (!seeds.includes(x)) seeds.push(x); }
+          }
+        }
+        cid++;
+      }
+      return {labels, clusters: cid};
+    }
+
     // --- Dates robustes ---
     function toJsDate(val) {
       if (!val) return null;
-      // Firestore Timestamp ?
       if (val && typeof val.toDate === 'function') {
         return val.toDate();
       }
-      // Date JS ?
       if (val instanceof Date) {
         return isNaN(val.getTime()) ? null : val;
       }
-      // Nombre (ms ou secondes)
       if (typeof val === 'number') {
         const d = new Date(val < 1e12 ? val * 1000 : val);
         return isNaN(d.getTime()) ? null : d;
       }
-      // Chaîne (ISO ou YYYY-MM-DD)
       if (typeof val === 'string') {
         const s = val.trim();
         if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
@@ -194,8 +252,7 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
           map.removeLayer(m);
         }
       });
-      // La heatmap reste visible en permanence (toutes déclarations confondues).
-      // Si tu veux la filtrer aussi, on peut la reconstruire ici en fonction des filtres.
+      // La heatmap et les zones probables sont gérées séparément.
     }
 
     function fitToData() {
@@ -203,6 +260,105 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
       if (!visible.length) return;
       const group = L.featureGroup(visible);
       map.fitBounds(group.getBounds().pad(0.2));
+    }
+
+    // --- Construction des zones probables de nid ---
+    function buildProbableZones() {
+      // Supprimer les anciens cercles
+      state.probLayers.forEach(l => map.removeLayer(l));
+      state.probLayers = [];
+
+      // Garder uniquement les signalements de frelons récents
+      const now = Date.now();
+      const fresh = state.raw
+        .filter(d => d.type === 'frelon')
+        .filter(d => {
+          const dt = toJsDate(d.date);
+          return dt && (now - dt.getTime()) <= NEST.TIME_WINDOW_DAYS * 86400000;
+        });
+
+      if (fresh.length < 2) return; // pas assez de signalements
+
+      // Poids par observation (quantité ^BETA * décroissance temporelle)
+      const W = fresh.map(d => {
+        const dt = toJsDate(d.date);
+        const days = (now - dt.getTime()) / 86400000;
+        const wQty = Math.pow(1 + Math.max(0, Number(d.quantity) || 0), NEST.BETA);
+        const wTime = Math.exp(-days / NEST.TAU_DAYS);
+        return wQty * wTime;
+      });
+
+      // Clusters (DBSCAN) pour détecter plusieurs foyers potentiels
+      const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
+      const eps = NEST.R95_M;
+      const { labels } = dbscan(pts, eps, 3);
+
+      // Déterminer les clusters valides ; fallback en un seul cluster si nécessaire
+      let cidSet = new Set(labels.filter(l => l >= 0));
+      if (cidSet.size === 0) {
+        cidSet = new Set([0]);
+        labels.fill(0);
+      }
+      const clusterIds = [...cidSet];
+
+      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P)); // rayon proba p
+
+      for (const cid of clusterIds) {
+        const idxs = labels.map((v, i) => (v === cid ? i : -1)).filter(i => i >= 0);
+        if (idxs.length < 2) continue;
+
+        // Bounds du cluster + marge = R95
+        let minLat = +Infinity, maxLat = -Infinity, minLng = +Infinity, maxLng = -Infinity;
+        idxs.forEach(i => {
+          const { lat, lng } = fresh[i];
+          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+          if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+        });
+        const lat0 = (minLat + maxLat) / 2;
+        minLat -= metersToDegLat(NEST.R95_M);
+        maxLat += metersToDegLat(NEST.R95_M);
+        minLng -= metersToDegLng(NEST.R95_M, lat0);
+        maxLng += metersToDegLng(NEST.R95_M, lat0);
+
+        // Grille de calcul
+        const stepLat = metersToDegLat(NEST.GRID_STEP_M);
+        const stepLng = metersToDegLng(NEST.GRID_STEP_M, lat0);
+
+        // Chercher le maximum de score S(x) = sum_i W_i * exp(-d^2/(2σ^2))
+        let best = { score: -1, lat: null, lng: null };
+        for (let lat = minLat; lat <= maxLat; lat += stepLat) {
+          for (let lng = minLng; lng <= maxLng; lng += stepLng) {
+            let s = 0;
+            for (const i of idxs) {
+              const d = haversineMeters({ lat, lng }, pts[i]);
+              s += W[i] * Math.exp(-(d * d) / (2 * NEST.SIGMA_M * NEST.SIGMA_M));
+            }
+            if (s > best.score) best = { score: s, lat, lng };
+          }
+        }
+
+        if (best.lat == null) continue;
+
+        // Cercle de zone probable
+        const circle = L.circle([best.lat, best.lng], {
+          radius: rp,
+          color: '#FF7A1A',
+          fillColor: '#FF7A1A',
+          fillOpacity: 0.15,
+          weight: 2,
+          dashArray: '6 6'
+        });
+
+        circle.bindPopup(
+          `<strong>Zone probable de nid</strong><br>
+           p = ${(NEST.PROB_P * 100).toFixed(0)}%<br>
+           Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
+           Basé sur ${idxs.length} signalement(s) récent(s)`
+        );
+
+        state.probLayers.push(circle);
+        if (state.showZones) circle.addTo(map);
+      }
     }
 
     async function loadData() {
@@ -267,6 +423,9 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
         }).addTo(map);
       }
 
+      // --- Zones probables de nid (à partir des frelons) ---
+      buildProbableZones();
+
       applyFilters();
       fitToData();
       badge.textContent = `${state.raw.length} signalement(s)`;
@@ -281,6 +440,14 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
     document.getElementById('toggleNid').addEventListener('change', (e) => {
       state.filters.nid = e.target.checked;
       applyFilters();
+    });
+
+    document.getElementById('toggleZones').addEventListener('change', (e) => {
+      state.showZones = e.target.checked;
+      state.probLayers.forEach(l => {
+        if (state.showZones) l.addTo(map);
+        else map.removeLayer(l);
+      });
     });
 
     document.getElementById('refreshBtn').addEventListener('click', (e) => {
@@ -315,4 +482,3 @@ Voici le fichier complet (copie-coller tel quel) avec la **heatmap orange** int�
   </script>
 </body>
 </html>
-```
