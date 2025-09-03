@@ -115,9 +115,9 @@
     const NEST = {
       TIME_WINDOW_DAYS: 21,   // on garde les frelons ≤ 21 jours
       TAU_DAYS: 14,           // décroissance du poids avec l'âge (jours)
-      BETA: 1.0,              // ***poids quantité*** dans S(x): w_qty = (1+q)^BETA (linéaire)
-      BETA_CLUSTER: 1.0,      // ***poids quantité*** pour le clustering (linéaire)
-      MIN_CLUSTER_WEIGHT: 6,  // ***seuil de "densité"*** (ex: ~6 frelons équivalents)
+      BETA: 1.0,              // poids quantité dans S(x) (linéaire)
+      BETA_CLUSTER: 1.0,      // poids quantité pour le clustering (linéaire)
+      MIN_CLUSTER_WEIGHT: 6,  // seuil de "densité" (≈ 6 frelons équivalents)
       Q_MAX: 50,              // anti-outliers: on borne q à 50
       R95_M: 1000,            // portée typique (95% des trajets)
       GRID_STEP_M: 250,       // pas de grille (m)
@@ -280,7 +280,7 @@
       // Aides quantité : clamp pour éviter outliers
       const qEff = (q) => Math.min(Math.max(Number(q) || 0, 0), NEST.Q_MAX);
 
-      // Poids pour le ***score*** S(x) (quantité prioritaire + temps)
+      // Poids pour le score S(x)
       const Wscore = fresh.map(d => {
         const dt = toJsDate(d.date);
         const days = (now - dt.getTime()) / 86400000;
@@ -289,7 +289,7 @@
         return wQty * wTime;
       });
 
-      // Poids pour le ***clustering*** (DBSCAN pondéré)
+      // Poids pour le clustering
       const Wcluster = fresh.map(d => {
         const dt = toJsDate(d.date);
         const days = (now - dt.getTime()) / 86400000;
@@ -348,6 +348,38 @@
         }
         if (best.lat == null) continue;
 
+        // Construire la liste détaillée pour la popup (tri par poids décroissant)
+        const rows = idxs.map(i => {
+          const di = fresh[i];
+          const dt = toJsDate(di.date);
+          const ageDays = dt ? Math.round((now - dt.getTime()) / 86400000) : null;
+          const dist = haversineMeters({ lat: best.lat, lng: best.lng }, { lat: di.lat, lng: di.lng });
+          const q = qEff(di.quantity);
+          const wQty = Math.pow(1 + q, NEST.BETA);
+          const wTime = dt ? Math.exp(-((now - dt.getTime()) / 86400000) / NEST.TAU_DAYS) : 0;
+          const w = wQty * wTime;
+          return {
+            dateStr: formatDate(di.date),
+            ageDays,
+            q,
+            lat: di.lat,
+            lng: di.lng,
+            dist,
+            weight: w,
+            desc: di.description ? String(di.description) : ''
+          };
+        }).sort((a,b) => b.weight - a.weight);
+
+        const itemsHtml = rows.map(r => {
+          const desc = r.desc ? ' — ' + escapeHtml(r.desc.slice(0, 140)) + (r.desc.length > 140 ? '…' : '') : '';
+          return `<li>
+            <strong>${r.q}</strong> frelon(s) — ${r.dateStr}${r.ageDays!=null?` (${r.ageDays} j)`:''} — ${Math.round(r.dist)} m du centre
+            <br><small>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}${desc}</small>
+          </li>`;
+        }).join('');
+
+        const totalQty = rows.reduce((acc,r)=>acc + r.q, 0);
+
         // Cercle
         const circle = L.circle([best.lat, best.lng], {
           radius: rp,
@@ -358,16 +390,19 @@
           dashArray: '6 6'
         });
 
-        // Total frelons équivalents dans le cluster (indicatif)
-        const totalQty = idxs.reduce((acc,i)=>acc + qEff(fresh[i].quantity), 0);
+        const popupHtml = `
+          <strong>Zone probable de nid</strong><br>
+          p = ${(NEST.PROB_P * 100).toFixed(0)}% — Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
+          Basé sur ${idxs.length} déclaration(s) récente(s) — Total frelons ≈ ${totalQty}
+          <details style="margin-top:6px;">
+            <summary>Voir les déclarations (${idxs.length})</summary>
+            <ol style="margin:6px 0 0 18px; padding:0; max-height:180px; overflow:auto;">
+              ${itemsHtml || '<li>Aucune</li>'}
+            </ol>
+          </details>
+        `;
 
-        circle.bindPopup(
-          `<strong>Zone probable de nid</strong><br>
-           p = ${(NEST.PROB_P * 100).toFixed(0)}%<br>
-           Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
-           Basé sur ${idxs.length} déclaration(s) récente(s)<br>
-           Total frelons déclarés (≈) : ${totalQty}`
-        );
+        circle.bindPopup(popupHtml);
 
         state.probLayers.push(circle);
         if (state.showZones) circle.addTo(map);
@@ -411,7 +446,7 @@
       if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
       const heatPoints = state.raw.map(d => {
         const base = Math.min(Math.max(Number(d.quantity)||0, 0), NEST.Q_MAX);
-        const weight = Math.max(0.2, Math.min(1, base / 10)); // accentue visuellement les grosses quantités
+        const weight = Math.max(0.2, Math.min(1, base / 10));
         return [d.lat, d.lng, weight];
       });
       if (heatPoints.length) {
