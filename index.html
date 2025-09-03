@@ -115,67 +115,65 @@
       nid: '#e26a6a'     // rouge
     };
 
-    // --- FIX formatage de la date pour Firestore date / ms / s / string ---
-    function formatDate(val) {
-  if (!val) return '—';
-  try {
-    let d;
-    // Firestore Timestamp ?
-    if (val && typeof val.toDate === 'function') {
-      d = val.toDate();
-    }
-    // JS Date ?
-    else if (val instanceof Date) {
-      d = val;
-    }
-    // Nombre (ms ou secondes) ?
-    else if (typeof val === 'number') {
-      d = new Date(val < 1e12 ? val * 1000 : val);
-    }
-    // Chaîne
-    else if (typeof val === 'string') {
-      // YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS...
-      const iso = val.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-        d = new Date(iso + 'T00:00:00Z');
-      } else {
-        const tmp = new Date(iso);
-        if (!isNaN(tmp.getTime())) d = tmp;
-      }
-    }
+    // Remplace TOTALEMENT ta fonction formatDate par ces 2 fonctions :
+function toJsDate(val) {
+  if (!val) return null;
 
-    if (!d || isNaN(d.getTime())) return String(val); // fallback sans casser l'affichage
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    return `${day}-${month}-${year}`;
-  } catch {
-    return '—';
+  // Firestore Timestamp ?
+  if (val && typeof val.toDate === 'function') {
+    return val.toDate();
   }
+  // Date JS ?
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val;
+  }
+  // Nombre (ms ou secondes)
+  if (typeof val === 'number') {
+    const d = new Date(val < 1e12 ? val * 1000 : val);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  // Chaîne (ISO ou YYYY-MM-DD)
+  if (typeof val === 'string') {
+    const s = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const d = new Date(s + 'T00:00:00Z');
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 }
 
+function formatDate(val) {
+  const d = toJsDate(val);
+  if (!d) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
 
+// Dans makeMarker, sécurise l’appel (optionnel mais conseillé) :
+function makeMarker(d) {
+  const color = d.type === 'nid' ? '#e26a6a' : '#6ae28a';
+  const marker = L.circleMarker([d.lat, d.lng], {
+    radius: Math.min(14, 6 + (Number(d.quantity)||0)),
+    color, fillColor: color, fillOpacity: 0.6, weight: 2
+  });
+  const title = d.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
+  const quantity = (d.quantity ?? '—');
 
-    function makeMarker(d) {
-      const color = d.type === 'nid' ? colors.nid : colors.frelon;
-      const marker = L.circleMarker([d.lat, d.lng], {
-        radius: Math.min(14, 6 + (Number(d.quantity)||0)),
-        color,
-        fillColor: color,
-        fillOpacity: 0.6,
-        weight: 2
-      });
-      const title = d.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
-      const quantity = (d.quantity ?? '—');
-      const description = d.description ? `<br><em>${escapeHtml(d.description)}</em>` : '';
-      marker.bindPopup(`
-        <strong>${title}</strong><br>
-        Quantité : ${quantity}<br>
-        Vu le : ${formatDate(d.date)}
-      `);
-      marker.__type = d.type; // pour filtrer rapidement
-      return marker;
-    }
+  let seen = '—';
+  try { seen = formatDate(d.date); } catch(_) {}
+
+  marker.bindPopup(`
+    <strong>${title}</strong><br>
+    Quantité : ${quantity}<br>
+    Vu le : ${seen}
+  `);
+  marker.__type = d.type;
+  return marker;
 
     function escapeHtml(str) {
       return String(str)
