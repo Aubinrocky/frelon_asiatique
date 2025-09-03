@@ -18,8 +18,9 @@
       --bg: #0b1020;
       --panel: #131b33;
       --muted: #9fb0d0;
-      --accent: #6ae28a;
-      --accent-2: #e26a6a;
+      --frelon: #ffd34d;  /* jaune */
+      --nid: #ff5a5a;     /* rouge */
+      --prob: #3aa3ff;    /* bleu */
       --text: #e6ecff;
     }
     html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
@@ -28,16 +29,39 @@
     header h1 { font-size: 16px; margin: 0; font-weight: 600; }
     .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; background: #0e1630; border: 1px solid #243058; }
-    .legend { display: flex; gap: 12px; align-items: center; }
-    .dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; margin-right: 6px; }
-    .dot-frelon { background: var(--accent); }
-    .dot-nid { background: var(--accent-2); }
+    .legend { display: flex; gap: 14px; align-items: center; }
     #map { width: 100%; height: calc(100vh - 62px); }
     .btn { background: #1a2240; color: var(--text); border: 1px solid #2a3869; border-radius: 10px; padding: 6px 10px; cursor: pointer; font-size: 14px; }
     .btn:hover { background: #212c52; }
     .leaflet-popup-content { color: #0b1020; }
     .toast { position: fixed; top: 12px; right: 12px; background: #0e1630; border: 1px solid #243058; color: var(--text); padding: 10px 12px; border-radius: 12px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); display: none; }
     .toast.show { display: block; }
+
+    /* --- Icônes "pointeur" en CSS (utilisées via L.divIcon) --- */
+    .pin {
+      position: relative;
+      width: 22px; height: 22px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+      border: 1px solid rgba(0,0,0,.25);
+    }
+    .pin::after {
+      content: '';
+      position: absolute;
+      width: 8px; height: 8px;
+      left: 7px; top: 7px;
+      background: #fff;
+      border-radius: 50%;
+      transform: rotate(45deg);
+    }
+    .pin-red { background: var(--nid); }
+    .pin-yellow { background: var(--frelon); }
+    .pin-blue { background: var(--prob); }
+
+    /* Version réduite pour la légende */
+    .pin.pin-sm { width: 16px; height: 16px; }
+    .pin.pin-sm::after { width: 6px; height: 6px; left: 5px; top: 5px; }
   </style>
 </head>
 <body>
@@ -47,9 +71,18 @@
       <div class="controls">
         <span id="countBadge" class="badge">Chargement…</span>
         <div class="legend">
-          <label><span class="dot dot-frelon"></span><input type="checkbox" id="toggleFrelon" checked> Frelons</label>
-          <label><span class="dot dot-nid"></span><input type="checkbox" id="toggleNid" checked> Nids</label>
-          <label><input type="checkbox" id="toggleZones" checked> Zone probable</label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-yellow"></span>
+            <input type="checkbox" id="toggleFrelon" checked> Frelons
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-red"></span>
+            <input type="checkbox" id="toggleNid" checked> Nids
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-blue"></span>
+            <input type="checkbox" id="toggleZones" checked> Zones probables
+          </label>
         </div>
         <button id="locateBtn" class="btn">📍 Autour de moi</button>
         <a class="btn" href="#" id="refreshBtn">🔄 Actualiser</a>
@@ -77,7 +110,7 @@
 
     // 👉 config Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiKMo4vos4",
+      apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiZKMo4vos4", // (reprend ta clé d’origine)
       authDomain: "frelonsasiatiques-d71cc.firebaseapp.com",
       projectId: "frelonsasiatiques-d71cc",
       storageBucket: "frelonsasiatiques-d71cc.firebasestorage.app",
@@ -98,30 +131,25 @@
     }).addTo(map);
 
     const state = {
-      markers: [],
+      markers: [],      // pointeurs frelons/nids
       raw: [],
-      heatLayer: null,       // heatmap
-      probLayers: [],        // cercles de zone probable
+      heatLayer: null,  // heatmap
+      probLayers: [],   // cercle(s) + pointeur(s) bleus
       filters: { frelon: true, nid: true },
       showZones: true
     };
 
-    const colors = {
-      frelon: '#6ae28a', // vert
-      nid: '#e26a6a'     // rouge
-    };
-
     // ----- Réglages (favoriser la QUANTITÉ de frelons) -----
     const NEST = {
-      TIME_WINDOW_DAYS: 21,   // on garde les frelons ≤ 21 jours
-      TAU_DAYS: 14,           // décroissance du poids avec l'âge (jours)
-      BETA: 1.0,              // poids quantité dans S(x) (linéaire)
-      BETA_CLUSTER: 1.0,      // poids quantité pour le clustering (linéaire)
-      MIN_CLUSTER_WEIGHT: 6,  // seuil de "densité" (≈ 6 frelons équivalents)
-      Q_MAX: 50,              // anti-outliers: on borne q à 50
-      R95_M: 1000,            // portée typique (95% des trajets)
-      GRID_STEP_M: 250,       // pas de grille (m)
-      PROB_P: 0.6             // cercle à p=60%
+      TIME_WINDOW_DAYS: 21,
+      TAU_DAYS: 14,
+      BETA: 1.0,
+      BETA_CLUSTER: 1.0,
+      MIN_CLUSTER_WEIGHT: 6,
+      Q_MAX: 50,
+      R95_M: 1000,
+      GRID_STEP_M: 250,
+      PROB_P: 0.6
     };
     NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95=1000 m
 
@@ -138,7 +166,17 @@
     function metersToDegLat(m){ return m / 111320; }
     function metersToDegLng(m, lat){ return m / (111320 * Math.cos(toRad(lat))); }
 
-    // --- DBSCAN pondéré (par somme des poids au voisinage) ---
+    // --- Icônes pointeur ---
+    function pinIcon(color){
+      return L.divIcon({
+        className: `pin pin-${color}`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 22],   // pointe du pin
+        popupAnchor: [0, -18]
+      });
+    }
+
+    // --- DBSCAN pondéré ---
     function dbscanWeighted(points, weights, epsMeters, minWeight){
       const n = points.length;
       const labels = Array(n).fill(-1); // -1: non visité, -2: bruit, >=0: cluster id
@@ -209,16 +247,10 @@
       return `${dd}-${mm}-${yyyy}`;
     }
 
-    // --- Markers ---
+    // --- Markers frelons/nids (POINTEURS) ---
     function makeMarker(d) {
-      const color = d.type === 'nid' ? colors.nid : colors.frelon;
-      const marker = L.circleMarker([d.lat, d.lng], {
-        radius: Math.min(14, 6 + (Number(d.quantity) || 0)),
-        color,
-        fillColor: color,
-        fillOpacity: 0.6,
-        weight: 2
-      });
+      const icon = d.type === 'nid' ? pinIcon('red') : pinIcon('yellow');
+      const marker = L.marker([d.lat, d.lng], { icon });
 
       const title = d.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
       const quantity = (d.quantity ?? '—');
@@ -262,11 +294,10 @@
 
     // --- Construction des zones probables de nid (quantité prioritaire) ---
     function buildProbableZones() {
-      // Supprimer anciens cercles
+      // Nettoyage (cercle + marqueurs bleus)
       state.probLayers.forEach(l => map.removeLayer(l));
       state.probLayers = [];
 
-      // Filtrer frelons récents
       const now = Date.now();
       const fresh = state.raw
         .filter(d => d.type === 'frelon')
@@ -274,50 +305,36 @@
           const dt = toJsDate(d.date);
           return dt && (now - dt.getTime()) <= NEST.TIME_WINDOW_DAYS * 86400000;
         });
-
       if (fresh.length < 2) return;
 
-      // Aides quantité : clamp pour éviter outliers
       const qEff = (q) => Math.min(Math.max(Number(q) || 0, 0), NEST.Q_MAX);
 
-      // Poids pour le score S(x)
+      // Poids score / clustering
       const Wscore = fresh.map(d => {
         const dt = toJsDate(d.date);
         const days = (now - dt.getTime()) / 86400000;
-        const wQty = Math.pow(1 + qEff(d.quantity), NEST.BETA);
-        const wTime = Math.exp(-days / NEST.TAU_DAYS);
-        return wQty * wTime;
+        return Math.pow(1 + qEff(d.quantity), NEST.BETA) * Math.exp(-days / NEST.TAU_DAYS);
       });
-
-      // Poids pour le clustering
       const Wcluster = fresh.map(d => {
         const dt = toJsDate(d.date);
         const days = (now - dt.getTime()) / 86400000;
-        const wQty = Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER);
-        const wTime = Math.exp(-days / NEST.TAU_DAYS);
-        return wQty * wTime;
+        return Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER) * Math.exp(-days / NEST.TAU_DAYS);
       });
 
-      // Clusters pondérés
       const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
       const { labels } = dbscanWeighted(pts, Wcluster, NEST.R95_M, NEST.MIN_CLUSTER_WEIGHT);
 
-      // Si aucun cluster valide, fallback: tout en un seul bloc
       let cidSet = new Set(labels.filter(l => l >= 0));
-      if (cidSet.size === 0) {
-        cidSet = new Set([0]);
-        labels.fill(0);
-      }
+      if (cidSet.size === 0) { cidSet = new Set([0]); labels.fill(0); }
       const clusterIds = [...cidSet];
 
-      // Rayon pour la probabilité p
-      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P));
+      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P)); // rayon p
 
       for (const cid of clusterIds) {
         const idxs = labels.map((v, i) => (v === cid ? i : -1)).filter(i => i >= 0);
         if (idxs.length < 2) continue;
 
-        // Bounds + marge R95
+        // Bounds + marge
         let minLat = +Infinity, maxLat = -Infinity, minLng = +Infinity, maxLng = -Infinity;
         idxs.forEach(i => {
           const { lat, lng } = fresh[i];
@@ -334,7 +351,7 @@
         const stepLat = metersToDegLat(NEST.GRID_STEP_M);
         const stepLng = metersToDegLng(NEST.GRID_STEP_M, lat0);
 
-        // Chercher le maximum de S(x) = Σ Wscore_i * exp(-d^2/(2σ^2))
+        // Max du score S(x)
         let best = { score: -1, lat: null, lng: null };
         for (let lat = minLat; lat <= maxLat; lat += stepLat) {
           for (let lng = minLng; lng <= maxLng; lng += stepLng) {
@@ -348,24 +365,18 @@
         }
         if (best.lat == null) continue;
 
-        // Construire la liste détaillée pour la popup (tri par poids décroissant)
+        // Préparer les détails pour la popup (tri par poids décroissant)
+        const nowMs = Date.now();
         const rows = idxs.map(i => {
           const di = fresh[i];
           const dt = toJsDate(di.date);
-          const ageDays = dt ? Math.round((now - dt.getTime()) / 86400000) : null;
+          const ageDays = dt ? Math.round((nowMs - dt.getTime()) / 86400000) : null;
           const dist = haversineMeters({ lat: best.lat, lng: best.lng }, { lat: di.lat, lng: di.lng });
           const q = qEff(di.quantity);
-          const wQty = Math.pow(1 + q, NEST.BETA);
-          const wTime = dt ? Math.exp(-((now - dt.getTime()) / 86400000) / NEST.TAU_DAYS) : 0;
-          const w = wQty * wTime;
+          const w = Math.pow(1 + q, NEST.BETA) * (dt ? Math.exp(-((nowMs - dt.getTime())/86400000)/NEST.TAU_DAYS) : 0);
           return {
-            dateStr: formatDate(di.date),
-            ageDays,
-            q,
-            lat: di.lat,
-            lng: di.lng,
-            dist,
-            weight: w,
+            dateStr: formatDate(di.date), ageDays, q,
+            lat: di.lat, lng: di.lng, dist, weight: w,
             desc: di.description ? String(di.description) : ''
           };
         }).sort((a,b) => b.weight - a.weight);
@@ -377,18 +388,7 @@
             <br><small>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}${desc}</small>
           </li>`;
         }).join('');
-
         const totalQty = rows.reduce((acc,r)=>acc + r.q, 0);
-
-        // Cercle
-        const circle = L.circle([best.lat, best.lng], {
-          radius: rp,
-          color: '#FF7A1A',
-          fillColor: '#FF7A1A',
-          fillOpacity: 0.15,
-          weight: 2,
-          dashArray: '6 6'
-        });
 
         const popupHtml = `
           <strong>Zone probable de nid</strong><br>
@@ -402,10 +402,21 @@
           </details>
         `;
 
-        circle.bindPopup(popupHtml);
+        // Cercle BLEU
+        const circle = L.circle([best.lat, best.lng], {
+          radius: rp,
+          color: 'var(--prob)',
+          fillColor: 'var(--prob)',
+          fillOpacity: 0.12,
+          weight: 2
+        }).bindPopup(popupHtml);
 
-        state.probLayers.push(circle);
-        if (state.showZones) circle.addTo(map);
+        // Pointeur BLEU à l'épicentre
+        const centerMarker = L.marker([best.lat, best.lng], { icon: pinIcon('blue') })
+          .bindPopup(popupHtml);
+
+        state.probLayers.push(circle, centerMarker);
+        if (state.showZones) { circle.addTo(map); centerMarker.addTo(map); }
       }
     }
 
@@ -438,9 +449,12 @@
         };
         state.raw.push(item);
 
-        const marker = makeMarker(item);
+        const marker = makeMarker(item); // POINTEUR rouge/jaune
         state.markers.push(marker);
       });
+
+      // Ajout des markers selon filtres
+      applyFilters();
 
       // --- Heatmap orange (visualisation) ---
       if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
@@ -456,10 +470,9 @@
         }).addTo(map);
       }
 
-      // --- Zones probables de nid (quantité prioritaire) ---
+      // --- Zones probables de nid (BLEU) ---
       buildProbableZones();
 
-      applyFilters();
       fitToData();
       badge.textContent = `${state.raw.length} signalement(s)`;
     }
