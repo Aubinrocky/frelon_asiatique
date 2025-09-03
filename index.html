@@ -114,12 +114,12 @@
 
     // ----- Modèle de localisation de nid (réglages) -----
     const NEST = {
-      TIME_WINDOW_DAYS: 21, // on garde les frelons récents
-      TAU_DAYS: 14,         // décroissance temporelle
+      TIME_WINDOW_DAYS: 30, // on garde les frelons récents
+      TAU_DAYS: 15,         // décroissance temporelle
       BETA: 0.7,            // pondération des quantités (sous-linéaire)
-      R95_M: 1000,          // rayon où ~95% de l'activité se trouve
+      R95_M: 500,          // rayon où ~95% de l'activité se trouve
       GRID_STEP_M: 250,     // pas de grille (m)
-      PROB_P: 0.6           // cercle qui contient p de proba (ex. 60%)
+      PROB_P: 0.4           // cercle qui contient p de proba (ex. 60%)
     };
     NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95 = 1000 m
 
