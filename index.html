@@ -49,7 +49,6 @@
         <div class="legend">
           <label><span class="dot dot-frelon"></span><input type="checkbox" id="toggleFrelon" checked> Frelons</label>
           <label><span class="dot dot-nid"></span><input type="checkbox" id="toggleNid" checked> Nids</label>
-          <!-- Toggle zone probable -->
           <label><input type="checkbox" id="toggleZones" checked> Zone probable</label>
         </div>
         <button id="locateBtn" class="btn">📍 Autour de moi</button>
@@ -101,8 +100,8 @@
     const state = {
       markers: [],
       raw: [],
-      heatLayer: null, // heatmap
-      probLayers: [],  // cercles de zone probable
+      heatLayer: null,       // heatmap
+      probLayers: [],        // cercles de zone probable
       filters: { frelon: true, nid: true },
       showZones: true
     };
@@ -112,16 +111,19 @@
       nid: '#e26a6a'     // rouge
     };
 
-    // ----- Modèle de localisation de nid (réglages) -----
+    // ----- Réglages (favoriser la QUANTITÉ de frelons) -----
     const NEST = {
-      TIME_WINDOW_DAYS: 30, // on garde les frelons récents
-      TAU_DAYS: 15,         // décroissance temporelle
-      BETA: 0.7,            // pondération des quantités (sous-linéaire)
-      R95_M: 500,          // rayon où ~95% de l'activité se trouve
-      GRID_STEP_M: 250,     // pas de grille (m)
-      PROB_P: 0.4           // cercle qui contient p de proba (ex. 60%)
+      TIME_WINDOW_DAYS: 21,   // on garde les frelons ≤ 21 jours
+      TAU_DAYS: 14,           // décroissance du poids avec l'âge (jours)
+      BETA: 1.0,              // ***poids quantité*** dans S(x): w_qty = (1+q)^BETA (linéaire)
+      BETA_CLUSTER: 1.0,      // ***poids quantité*** pour le clustering (linéaire)
+      MIN_CLUSTER_WEIGHT: 6,  // ***seuil de "densité"*** (ex: ~6 frelons équivalents)
+      Q_MAX: 50,              // anti-outliers: on borne q à 50
+      R95_M: 1000,            // portée typique (95% des trajets)
+      GRID_STEP_M: 250,       // pas de grille (m)
+      PROB_P: 0.6             // cercle à p=60%
     };
-    NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95 = 1000 m
+    NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95=1000 m
 
     // --- Aides géo ---
     function toRad(d){ return d*Math.PI/180; }
@@ -136,26 +138,30 @@
     function metersToDegLat(m){ return m / 111320; }
     function metersToDegLng(m, lat){ return m / (111320 * Math.cos(toRad(lat))); }
 
-    // --- DBSCAN simple (pour plusieurs foyers éventuels) ---
-    function dbscan(points, epsMeters, minPts){
+    // --- DBSCAN pondéré (par somme des poids au voisinage) ---
+    function dbscanWeighted(points, weights, epsMeters, minWeight){
       const n = points.length;
       const labels = Array(n).fill(-1); // -1: non visité, -2: bruit, >=0: cluster id
       let cid = 0;
 
       function neighbors(i){
-        const res = [];
+        const idxs = [];
         for (let j=0;j<n;j++){
           if (i===j) continue;
-          const d = haversineMeters(points[i], points[j]);
-          if (d <= epsMeters) res.push(j);
+          if (haversineMeters(points[i], points[j]) <= epsMeters) idxs.push(j);
         }
-        return res;
+        return idxs;
+      }
+      function neighWeight(i, neighIdxs){
+        let s = weights[i];
+        for (const j of neighIdxs) s += weights[j];
+        return s;
       }
 
       for (let i=0;i<n;i++){
         if (labels[i] !== -1) continue;
         const neigh = neighbors(i);
-        if (neigh.length+1 < minPts){ labels[i] = -2; continue; } // bruit
+        if (neighWeight(i, neigh) < minWeight){ labels[i] = -2; continue; } // bruit
         labels[i] = cid;
         const seeds = [...neigh];
         for (let k=0;k<seeds.length;k++){
@@ -163,9 +169,9 @@
           if (labels[j] === -2) labels[j] = cid;
           if (labels[j] !== -1) continue;
           labels[j] = cid;
-          const neighj = neighbors(j);
-          if (neighj.length+1 >= minPts){
-            for (const x of neighj){ if (!seeds.includes(x)) seeds.push(x); }
+          const nj = neighbors(j);
+          if (neighWeight(j, nj) >= minWeight){
+            for (const x of nj){ if (!seeds.includes(x)) seeds.push(x); }
           }
         }
         cid++;
@@ -176,12 +182,8 @@
     // --- Dates robustes ---
     function toJsDate(val) {
       if (!val) return null;
-      if (val && typeof val.toDate === 'function') {
-        return val.toDate();
-      }
-      if (val instanceof Date) {
-        return isNaN(val.getTime()) ? null : val;
-      }
+      if (val && typeof val.toDate === 'function') return val.toDate();
+      if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
       if (typeof val === 'number') {
         const d = new Date(val < 1e12 ? val * 1000 : val);
         return isNaN(d.getTime()) ? null : d;
@@ -246,13 +248,9 @@
         const visible =
           (m.__type === 'nid' && state.filters.nid) ||
           (m.__type === 'frelon' && state.filters.frelon);
-        if (visible) {
-          m.addTo(map);
-        } else {
-          map.removeLayer(m);
-        }
+        if (visible) m.addTo(map); else map.removeLayer(m);
       });
-      // La heatmap et les zones probables sont gérées séparément.
+      // Heatmap et zones probables gérées séparément.
     }
 
     function fitToData() {
@@ -262,13 +260,13 @@
       map.fitBounds(group.getBounds().pad(0.2));
     }
 
-    // --- Construction des zones probables de nid ---
+    // --- Construction des zones probables de nid (quantité prioritaire) ---
     function buildProbableZones() {
-      // Supprimer les anciens cercles
+      // Supprimer anciens cercles
       state.probLayers.forEach(l => map.removeLayer(l));
       state.probLayers = [];
 
-      // Garder uniquement les signalements de frelons récents
+      // Filtrer frelons récents
       const now = Date.now();
       const fresh = state.raw
         .filter(d => d.type === 'frelon')
@@ -277,23 +275,34 @@
           return dt && (now - dt.getTime()) <= NEST.TIME_WINDOW_DAYS * 86400000;
         });
 
-      if (fresh.length < 2) return; // pas assez de signalements
+      if (fresh.length < 2) return;
 
-      // Poids par observation (quantité ^BETA * décroissance temporelle)
-      const W = fresh.map(d => {
+      // Aides quantité : clamp pour éviter outliers
+      const qEff = (q) => Math.min(Math.max(Number(q) || 0, 0), NEST.Q_MAX);
+
+      // Poids pour le ***score*** S(x) (quantité prioritaire + temps)
+      const Wscore = fresh.map(d => {
         const dt = toJsDate(d.date);
         const days = (now - dt.getTime()) / 86400000;
-        const wQty = Math.pow(1 + Math.max(0, Number(d.quantity) || 0), NEST.BETA);
+        const wQty = Math.pow(1 + qEff(d.quantity), NEST.BETA);
         const wTime = Math.exp(-days / NEST.TAU_DAYS);
         return wQty * wTime;
       });
 
-      // Clusters (DBSCAN) pour détecter plusieurs foyers potentiels
-      const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
-      const eps = NEST.R95_M;
-      const { labels } = dbscan(pts, eps, 3);
+      // Poids pour le ***clustering*** (DBSCAN pondéré)
+      const Wcluster = fresh.map(d => {
+        const dt = toJsDate(d.date);
+        const days = (now - dt.getTime()) / 86400000;
+        const wQty = Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER);
+        const wTime = Math.exp(-days / NEST.TAU_DAYS);
+        return wQty * wTime;
+      });
 
-      // Déterminer les clusters valides ; fallback en un seul cluster si nécessaire
+      // Clusters pondérés
+      const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
+      const { labels } = dbscanWeighted(pts, Wcluster, NEST.R95_M, NEST.MIN_CLUSTER_WEIGHT);
+
+      // Si aucun cluster valide, fallback: tout en un seul bloc
       let cidSet = new Set(labels.filter(l => l >= 0));
       if (cidSet.size === 0) {
         cidSet = new Set([0]);
@@ -301,13 +310,14 @@
       }
       const clusterIds = [...cidSet];
 
-      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P)); // rayon proba p
+      // Rayon pour la probabilité p
+      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P));
 
       for (const cid of clusterIds) {
         const idxs = labels.map((v, i) => (v === cid ? i : -1)).filter(i => i >= 0);
         if (idxs.length < 2) continue;
 
-        // Bounds du cluster + marge = R95
+        // Bounds + marge R95
         let minLat = +Infinity, maxLat = -Infinity, minLng = +Infinity, maxLng = -Infinity;
         idxs.forEach(i => {
           const { lat, lng } = fresh[i];
@@ -320,26 +330,25 @@
         minLng -= metersToDegLng(NEST.R95_M, lat0);
         maxLng += metersToDegLng(NEST.R95_M, lat0);
 
-        // Grille de calcul
+        // Grille
         const stepLat = metersToDegLat(NEST.GRID_STEP_M);
         const stepLng = metersToDegLng(NEST.GRID_STEP_M, lat0);
 
-        // Chercher le maximum de score S(x) = sum_i W_i * exp(-d^2/(2σ^2))
+        // Chercher le maximum de S(x) = Σ Wscore_i * exp(-d^2/(2σ^2))
         let best = { score: -1, lat: null, lng: null };
         for (let lat = minLat; lat <= maxLat; lat += stepLat) {
           for (let lng = minLng; lng <= maxLng; lng += stepLng) {
             let s = 0;
             for (const i of idxs) {
               const d = haversineMeters({ lat, lng }, pts[i]);
-              s += W[i] * Math.exp(-(d * d) / (2 * NEST.SIGMA_M * NEST.SIGMA_M));
+              s += Wscore[i] * Math.exp(-(d * d) / (2 * NEST.SIGMA_M * NEST.SIGMA_M));
             }
             if (s > best.score) best = { score: s, lat, lng };
           }
         }
-
         if (best.lat == null) continue;
 
-        // Cercle de zone probable
+        // Cercle
         const circle = L.circle([best.lat, best.lng], {
           radius: rp,
           color: '#FF7A1A',
@@ -349,11 +358,15 @@
           dashArray: '6 6'
         });
 
+        // Total frelons équivalents dans le cluster (indicatif)
+        const totalQty = idxs.reduce((acc,i)=>acc + qEff(fresh[i].quantity), 0);
+
         circle.bindPopup(
           `<strong>Zone probable de nid</strong><br>
            p = ${(NEST.PROB_P * 100).toFixed(0)}%<br>
            Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
-           Basé sur ${idxs.length} signalement(s) récent(s)`
+           Basé sur ${idxs.length} déclaration(s) récente(s)<br>
+           Total frelons déclarés (≈) : ${totalQty}`
         );
 
         state.probLayers.push(circle);
@@ -377,7 +390,7 @@
 
       snap.forEach(doc => {
         const d = doc.data();
-        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return; // on ignore
+        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
 
         const type = (d.type === 'nid') ? 'nid' : 'frelon';
         const item = {
@@ -385,7 +398,7 @@
           lat: d.lat,
           lng: d.lng,
           quantity: typeof d.quantity === 'number' ? d.quantity : Number(d.quantity) || 0,
-          date: d.date ?? null, // laissé tel quel, géré par formatDate()
+          date: d.date ?? null,
           description: d.description ?? ''
         };
         state.raw.push(item);
@@ -394,36 +407,21 @@
         state.markers.push(marker);
       });
 
-      // --- Heatmap orange à partir des déclarations (toutes) ---
-      if (state.heatLayer) {
-        map.removeLayer(state.heatLayer);
-        state.heatLayer = null;
-      }
-
-      // Poids: basé sur "quantity" (plancher 0.2, plafond 1)
+      // --- Heatmap orange (visualisation) ---
+      if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
       const heatPoints = state.raw.map(d => {
-        const base = Number.isFinite(d.quantity) ? d.quantity : 1;
-        const weight = Math.max(0.2, Math.min(1, base / 10)); // ajuste au besoin
+        const base = Math.min(Math.max(Number(d.quantity)||0, 0), NEST.Q_MAX);
+        const weight = Math.max(0.2, Math.min(1, base / 10)); // accentue visuellement les grosses quantités
         return [d.lat, d.lng, weight];
       });
-
       if (heatPoints.length) {
         state.heatLayer = L.heatLayer(heatPoints, {
-          radius: 28,     // rayon du "halo"
-          blur: 18,       // adoucissement
-          maxZoom: 17,
-          // dégradé orange
-          gradient: {
-            0.2: '#FFE8CC',
-            0.4: '#FFC285',
-            0.6: '#FF9A3A',
-            0.8: '#FF7A1A',
-            1.0: '#FF5A00'
-          }
+          radius: 28, blur: 18, maxZoom: 17,
+          gradient: { 0.2: '#FFE8CC', 0.4: '#FFC285', 0.6: '#FF9A3A', 0.8: '#FF7A1A', 1.0: '#FF5A00' }
         }).addTo(map);
       }
 
-      // --- Zones probables de nid (à partir des frelons) ---
+      // --- Zones probables de nid (quantité prioritaire) ---
       buildProbableZones();
 
       applyFilters();
@@ -436,32 +434,22 @@
       state.filters.frelon = e.target.checked;
       applyFilters();
     });
-
     document.getElementById('toggleNid').addEventListener('change', (e) => {
       state.filters.nid = e.target.checked;
       applyFilters();
     });
-
     document.getElementById('toggleZones').addEventListener('change', (e) => {
       state.showZones = e.target.checked;
-      state.probLayers.forEach(l => {
-        if (state.showZones) l.addTo(map);
-        else map.removeLayer(l);
-      });
+      state.probLayers.forEach(l => { if (state.showZones) l.addTo(map); else map.removeLayer(l); });
     });
-
     document.getElementById('refreshBtn').addEventListener('click', (e) => {
       e.preventDefault();
-      loadData(); 
+      loadData();
     });
-
     document.getElementById('locateBtn').addEventListener('click', () => {
       if (!navigator.geolocation) return showToast('Géolocalisation non supportée.');
       navigator.geolocation.getCurrentPosition(
-        pos => {
-          const { latitude, longitude } = pos.coords;
-          map.setView([latitude, longitude], 13);
-        },
+        pos => { const { latitude, longitude } = pos.coords; map.setView([latitude, longitude], 13); },
         () => showToast('Position introuvable.')
       );
     });
