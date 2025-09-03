@@ -115,10 +115,10 @@
       nid: '#e26a6a'     // rouge
     };
 
-    // --- FIX formatage de la date pour Firestore Timestamp / ms / s / string ---
+    // --- FIX formatage de la date pour Firestore date / ms / s / string ---
     function formatDate(ts) {
   if (!ts) return '—';
-  const d = ts.toDate(); // Firestore Timestamp → JS Date
+  const d = ts.toDate(); // Firestore date → JS Date
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
@@ -141,7 +141,7 @@
       marker.bindPopup(`
         <strong>${title}</strong><br>
         Quantité : ${quantity}<br>
-        Vu le : ${formatDate(d.timestamp)}
+        Vu le : ${formatDate(d.date)}
       `);
       marker.__type = d.type; // pour filtrer rapidement
       return marker;
@@ -178,7 +178,7 @@
       const badge = document.getElementById('countBadge');
       badge.textContent = 'Chargement…';
       // Trie par date descendante pour avoir les plus récents d'abord
-      const q = query(collection(db, 'declaration'), orderBy('timestamp', 'desc'));
+      const q = query(collection(db, 'declaration'), orderBy('date', 'desc'));
       const snap = await getDocs(q);
       state.raw = [];
 
@@ -195,7 +195,7 @@
           lat: d.lat,
           lng: d.lng,
           quantity: typeof d.quantity === 'number' ? d.quantity : Number(d.quantity) || 0,
-          timestamp: d.timestamp ?? null,     // laissé tel quel, géré par formatDate()
+          date: d.date ?? null,     // laissé tel quel, géré par formatDate()
           description: d.description ?? ''
         };
         state.raw.push(item);
