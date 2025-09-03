@@ -47,6 +47,13 @@
     .toast { position: fixed; top: 12px; right: 12px; background: #0e1630; border: 1px solid #243058; color: var(--text); padding: 10px 12px; border-radius: 12px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); display: none; }
     .toast.show { display: block; }
 
+    /* Select (filtre temps) */
+    select.select {
+      background: #1a2240; color: var(--text);
+      border: 1px solid #2a3869; border-radius: 10px;
+      padding: 6px 10px; font-size: 14px;
+    }
+
     /* --- Icônes "pointeur" en CSS (via L.divIcon) --- */
     .pin {
       position: relative;
@@ -83,18 +90,9 @@
       font-weight: 800;
       line-height: 1;
     }
-    .cluster.cluster-yellow {
-      background: rgba(255, 211, 77, .95);
-      color: #202020;
-    }
-    .cluster.cluster-red {
-      background: rgba(255, 90, 90, .95);
-      color: #fff;
-    }
-    .cluster.cluster-mixed {
-      background: conic-gradient(rgba(255,211,77,.95) 0 50%, rgba(255,90,90,.95) 50% 100%);
-      color: #1a1a1a;
-    }
+    .cluster.cluster-yellow { background: rgba(255, 211, 77, .95); color: #202020; }
+    .cluster.cluster-red { background: rgba(255, 90, 90, .95); color: #fff; }
+    .cluster.cluster-mixed { background: conic-gradient(rgba(255,211,77,.95) 0 50%, rgba(255,90,90,.95) 50% 100%); color: #1a1a1a; }
   </style>
 </head>
 <body>
@@ -103,6 +101,8 @@
       <h1>Carte des signalements – Frelon asiatique</h1>
       <div class="controls">
         <span id="countBadge" class="badge">Chargement…</span>
+
+        <!-- Légende -->
         <div class="legend">
           <label style="display:flex;align-items:center;gap:6px;">
             <span class="pin pin-sm pin-yellow"></span>
@@ -117,6 +117,16 @@
             <input type="checkbox" id="toggleZones" checked> Zones probables
           </label>
         </div>
+
+        <!-- Filtre temporel -->
+        <select id="timeFilter" class="select" title="Filtrer par période">
+          <option value="week">Cette semaine</option>
+          <option value="month" selected>Ce mois-ci</option>
+          <option value="year">Cette année</option>
+          <option value="lastyear">L’année dernière</option>
+          <option value="all">Tout</option>
+        </select>
+
         <button id="locateBtn" class="btn">📍 Autour de moi</button>
         <a class="btn" href="#" id="refreshBtn">🔄 Actualiser</a>
       </div>
@@ -193,20 +203,20 @@
       heatLayer: null,  // heatmap
       probLayers: [],   // cercle(s) + pointeur(s) bleus
       filters: { frelon: true, nid: true },
-      showZones: true
+      showZones: true,
+      timeFilter: 'month' // défaut: Ce mois-ci
     };
 
-    // ----- Réglages (favoriser la QUANTITÉ de frelons) -----
+    // ----- Réglages (algo) -----
     const NEST = {
-      TIME_WINDOW_DAYS: 21,
-      TAU_DAYS: 14,
-      BETA: 1.0,
-      BETA_CLUSTER: 1.0,
-      MIN_CLUSTER_WEIGHT: 6,
-      Q_MAX: 50,
-      R95_M: 1000,
-      GRID_STEP_M: 250,
-      PROB_P: 0.6
+      TAU_DAYS: 14,           // décroissance temporelle
+      BETA: 1.0,              // poids quantité pour le score
+      BETA_CLUSTER: 1.0,      // poids quantité pour le clustering
+      MIN_CLUSTER_WEIGHT: 6,  // seuil de densité pondérée
+      Q_MAX: 50,              // borne anti-outliers
+      R95_M: 1000,            // portée typique
+      GRID_STEP_M: 250,       // pas de grille
+      PROB_P: 0.6             // cercle p=60%
     };
     NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95=1000 m
 
@@ -223,13 +233,13 @@
     function metersToDegLat(m){ return m / 111320; }
     function metersToDegLng(m, lat){ return m / (111320 * Math.cos(toRad(lat))); }
 
-    // --- Icônes pointeur ---
+    // --- Icônes pointeur (popup collée) ---
     function pinIcon(color){
       return L.divIcon({
         className: `pin pin-${color}`,
         iconSize: [22, 22],
-        iconAnchor: [11, 22],
-        popupAnchor: [0, -18]
+        iconAnchor: [11, 22],   // pointe du pin
+        popupAnchor: [0, -12]   // popup collée (ajusté finement)
       });
     }
 
@@ -304,22 +314,60 @@
       return `${dd}-${mm}-${yyyy}`;
     }
 
-    // --- Markers frelons/nids (POINTEURS) ---
-    function makeMarker(d) {
-      const icon = d.type === 'nid' ? pinIcon('red') : pinIcon('yellow');
-      const marker = L.marker([d.lat, d.lng], { icon });
+    // --- Filtre temporel ---
+    function startOfWeek(d){
+      const x = new Date(d); x.setHours(0,0,0,0);
+      const day = x.getDay(); // 0=dim..6=sam
+      const delta = (day === 0 ? -6 : 1 - day); // Lundi
+      x.setDate(x.getDate() + delta);
+      return x;
+    }
+    function getTimeRange(filterKey){
+      const now = new Date();
+      const end = new Date(); // maintenant
+      end.setHours(23,59,59,999);
+      let start = null;
 
-      const title = d.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
-      const quantity = (d.quantity ?? '—');
+      if (filterKey === 'week'){
+        start = startOfWeek(now);
+      } else if (filterKey === 'month'){
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0,0,0,0);
+      } else if (filterKey === 'year'){
+        start = new Date(now.getFullYear(), 0, 1, 0,0,0,0);
+      } else if (filterKey === 'lastyear'){
+        start = new Date(now.getFullYear()-1, 0, 1, 0,0,0,0);
+        end.setFullYear(now.getFullYear(), 0, 0); // 31/12 de l'an dernier
+        end.setHours(23,59,59,999);
+      } else if (filterKey === 'all'){
+        start = null; // pas de borne
+      }
+      return { start, end };
+    }
+    function dateInRange(val, range){
+      const d = toJsDate(val);
+      if (!d) return false;
+      if (range.start && d < range.start) return false;
+      if (range.end && d > range.end) return false;
+      return true;
+    }
+
+    // --- Markers frelons/nids (POINTEURS) ---
+    function makeMarker(item) {
+      const icon = item.type === 'nid' ? pinIcon('red') : pinIcon('yellow');
+      const marker = L.marker([item.lat, item.lng], { icon });
+
+      const title = item.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
+      const quantity = (item.quantity ?? '—');
       let seen = '—';
-      try { seen = formatDate(d.date); } catch(_) {}
+      try { seen = formatDate(item.date); } catch(_) {}
 
       marker.bindPopup(
         `<strong>${title}</strong><br>
          Quantité : ${quantity}<br>
          Vu le : ${seen}`
       );
-      marker.__type = d.type;
+      marker.__type = item.type;
+      marker.__data = item; // pour le filtre temps
       return marker;
     }
 
@@ -332,21 +380,39 @@
         .replaceAll("'", '&#039;');
     }
 
-    // --- (nouveau) Synchroniser les marqueurs visibles avec le cluster ---
+    // --- Synchroniser les marqueurs visibles avec le cluster (filtres + temps) ---
     function syncCluster() {
       clusters.clearLayers();
+      const { start, end } = getTimeRange(state.timeFilter);
       const visible = [];
       for (const m of state.markers) {
-        const isVisible =
+        const inTime = dateInRange(m.__data.date, {start, end});
+        const byType =
           (m.__type === 'nid' && state.filters.nid) ||
           (m.__type === 'frelon' && state.filters.frelon);
-        if (isVisible) visible.push(m);
+        if (inTime && byType) visible.push(m);
       }
       if (visible.length) clusters.addLayers(visible);
+
+      // compteur
+      document.getElementById('countBadge').textContent = `${visible.length} signalement(s)`;
     }
 
-    function applyFilters() {
-      syncCluster(); // on gère l’affichage via le cluster
+    // --- Heatmap (sur données filtrées) ---
+    function rebuildHeatmap() {
+      if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
+      const { start, end } = getTimeRange(state.timeFilter);
+      const filtered = state.raw.filter(d => dateInRange(d.date, {start, end}));
+      if (!filtered.length) return;
+      const heatPoints = filtered.map(d => {
+        const base = Math.min(Math.max(Number(d.quantity)||0, 0), NEST.Q_MAX);
+        const weight = Math.max(0.2, Math.min(1, base / 10));
+        return [d.lat, d.lng, weight];
+      });
+      state.heatLayer = L.heatLayer(heatPoints, {
+        radius: 28, blur: 18, maxZoom: 17,
+        gradient: { 0.2: '#FFE8CC', 0.4: '#FFC285', 0.6: '#FF9A3A', 0.8: '#FF7A1A', 1.0: '#FF5A00' }
+      }).addTo(map);
     }
 
     function fitToData() {
@@ -360,32 +426,31 @@
       }
     }
 
-    // --- Construction des zones probables de nid (quantité prioritaire) ---
+    // --- Construction des zones probables de nid (sur données filtrées) ---
     function buildProbableZones() {
       // Nettoyage (cercle + marqueurs bleus)
       state.probLayers.forEach(l => map.removeLayer(l));
       state.probLayers = [];
 
-      const now = Date.now();
+      const { start, end } = getTimeRange(state.timeFilter);
       const fresh = state.raw
         .filter(d => d.type === 'frelon')
-        .filter(d => {
-          const dt = toJsDate(d.date);
-          return dt && (now - dt.getTime()) <= NEST.TIME_WINDOW_DAYS * 86400000;
-        });
+        .filter(d => dateInRange(d.date, {start, end}));
+
       if (fresh.length < 2) return;
 
       const qEff = (q) => Math.min(Math.max(Number(q) || 0, 0), NEST.Q_MAX);
 
-      // Poids score / clustering
+      // Poids score / clustering (avec décroissance temporelle)
+      const now = Date.now();
       const Wscore = fresh.map(d => {
         const dt = toJsDate(d.date);
-        const days = (now - dt.getTime()) / 86400000;
+        const days = dt ? (now - dt.getTime()) / 86400000 : 0;
         return Math.pow(1 + qEff(d.quantity), NEST.BETA) * Math.exp(-days / NEST.TAU_DAYS);
       });
       const Wcluster = fresh.map(d => {
         const dt = toJsDate(d.date);
-        const days = (now - dt.getTime()) / 86400000;
+        const days = dt ? (now - dt.getTime()) / 86400000 : 0;
         return Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER) * Math.exp(-days / NEST.TAU_DAYS);
       });
 
@@ -398,6 +463,7 @@
       const clusterIds = [...cidSet];
 
       const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P)); // rayon p
+      const probColor = (getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff').trim();
 
       for (const cid of clusterIds) {
         const idxs = labels.map((v, i) => (v === cid ? i : -1)).filter(i => i >= 0);
@@ -434,7 +500,7 @@
         }
         if (best.lat == null) continue;
 
-        // Préparer les détails pour la popup (tri par poids décroissant)
+        // Préparer la liste détaillée pour la popup
         const rows = idxs.map(i => {
           const di = fresh[i];
           const dt = toJsDate(di.date);
@@ -461,7 +527,7 @@
         const popupHtml = `
           <strong>Zone probable de nid</strong><br>
           p = ${(NEST.PROB_P * 100).toFixed(0)}% — Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
-          Basé sur ${idxs.length} déclaration(s) récente(s) — Total frelons ≈ ${totalQty}
+          Basé sur ${idxs.length} déclaration(s) — Total frelons ≈ ${totalQty}
           <details style="margin-top:6px;">
             <summary>Voir les déclarations (${idxs.length})</summary>
             <ol style="margin:6px 0 0 18px; padding:0; max-height:180px; overflow:auto;">
@@ -473,19 +539,30 @@
         // Cercle BLEU
         const circle = L.circle([best.lat, best.lng], {
           radius: rp,
-          color: getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff',
-          fillColor: getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff',
+          color: probColor,
+          fillColor: probColor,
           fillOpacity: 0.12,
           weight: 2
         }).bindPopup(popupHtml);
 
-        // Pointeur BLEU à l'épicentre
+        // Pointeur BLEU à l'épicentre (popup collée)
         const centerMarker = L.marker([best.lat, best.lng], { icon: pinIcon('blue') })
           .bindPopup(popupHtml);
 
         state.probLayers.push(circle, centerMarker);
         if (state.showZones) { circle.addTo(map); centerMarker.addTo(map); }
       }
+    }
+
+    // ---- Orchestration (à appeler à chaque changement de filtre) ----
+    function refreshViews(){
+      syncCluster();
+      rebuildHeatmap();
+      // Zones probables réévaluées sur la même période filtrée
+      buildProbableZones();
+      // Ajuster la vue si nécessaire
+      // (ne pas recentrer agressivement si l'utilisateur a zoomé manuellement ? au besoin, commenter)
+      // fitToData();
     }
 
     async function loadData() {
@@ -497,8 +574,6 @@
       const snap = await getDocs(q);
 
       state.raw = [];
-
-      // Nettoyage anciens marqueurs (cluster se recharge via syncCluster)
       state.markers.length = 0;
       clusters.clearLayers();
 
@@ -506,9 +581,8 @@
         const d = doc.data();
         if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
 
-        const type = (d.type === 'nid') ? 'nid' : 'frelon';
         const item = {
-          type,
+          type: (d.type === 'nid') ? 'nid' : 'frelon',
           lat: d.lat,
           lng: d.lng,
           quantity: typeof d.quantity === 'number' ? d.quantity : Number(d.quantity) || 0,
@@ -517,46 +591,31 @@
         };
         state.raw.push(item);
 
-        const marker = makeMarker(item);
+        const marker = makeMarker(item); // POINTEUR rouge/jaune + popup collée
         state.markers.push(marker);
       });
 
-      // Appliquer filtres -> ajoute les bons markers au cluster
-      applyFilters();
-
-      // --- Heatmap orange (visualisation) ---
-      if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
-      const heatPoints = state.raw.map(d => {
-        const base = Math.min(Math.max(Number(d.quantity)||0, 0), NEST.Q_MAX);
-        const weight = Math.max(0.2, Math.min(1, base / 10));
-        return [d.lat, d.lng, weight];
-      });
-      if (heatPoints.length) {
-        state.heatLayer = L.heatLayer(heatPoints, {
-          radius: 28, blur: 18, maxZoom: 17,
-          gradient: { 0.2: '#FFE8CC', 0.4: '#FFC285', 0.6: '#FF9A3A', 0.8: '#FF7A1A', 1.0: '#FF5A00' }
-        }).addTo(map);
-      }
-
-      // --- Zones probables de nid (BLEU) ---
-      buildProbableZones();
-
+      refreshViews();
+      // On ne bouge la vue qu’au premier chargement
       fitToData();
-      badge.textContent = `${state.raw.length} signalement(s)`;
     }
 
     // UI handlers
     document.getElementById('toggleFrelon').addEventListener('change', (e) => {
       state.filters.frelon = e.target.checked;
-      applyFilters();
+      refreshViews();
     });
     document.getElementById('toggleNid').addEventListener('change', (e) => {
       state.filters.nid = e.target.checked;
-      applyFilters();
+      refreshViews();
     });
     document.getElementById('toggleZones').addEventListener('change', (e) => {
       state.showZones = e.target.checked;
       state.probLayers.forEach(l => { if (state.showZones) l.addTo(map); else map.removeLayer(l); });
+    });
+    document.getElementById('timeFilter').addEventListener('change', (e) => {
+      state.timeFilter = e.target.value;
+      refreshViews();
     });
     document.getElementById('refreshBtn').addEventListener('click', (e) => {
       e.preventDefault();
@@ -586,4 +645,3 @@
   </script>
 </body>
 </html>
- 
