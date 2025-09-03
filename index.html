@@ -116,14 +116,44 @@
     };
 
     // --- FIX formatage de la date pour Firestore date / ms / s / string ---
-    function formatDate(ts) {
-  if (!ts) return '—';
-  const d = ts.toDate(); // Firestore date → JS Date
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const year = d.getFullYear();
-  return `${day}-${month}-${year}`;
+    function formatDate(val) {
+  if (!val) return '—';
+  try {
+    let d;
+    // Firestore Timestamp ?
+    if (val && typeof val.toDate === 'function') {
+      d = val.toDate();
+    }
+    // JS Date ?
+    else if (val instanceof Date) {
+      d = val;
+    }
+    // Nombre (ms ou secondes) ?
+    else if (typeof val === 'number') {
+      d = new Date(val < 1e12 ? val * 1000 : val);
+    }
+    // Chaîne
+    else if (typeof val === 'string') {
+      // YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS...
+      const iso = val.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        d = new Date(iso + 'T00:00:00Z');
+      } else {
+        const tmp = new Date(iso);
+        if (!isNaN(tmp.getTime())) d = tmp;
+      }
+    }
+
+    if (!d || isNaN(d.getTime())) return String(val); // fallback sans casser l'affichage
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch {
+    return '—';
+  }
 }
+
 
 
     function makeMarker(d) {
