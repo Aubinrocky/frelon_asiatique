@@ -13,6 +13,16 @@
     crossorigin=""
   />
 
+  <!-- MarkerCluster CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
+
   <style>
     :root {
       --bg: #0b1020;
@@ -37,7 +47,7 @@
     .toast { position: fixed; top: 12px; right: 12px; background: #0e1630; border: 1px solid #243058; color: var(--text); padding: 10px 12px; border-radius: 12px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); display: none; }
     .toast.show { display: block; }
 
-    /* --- Icônes "pointeur" en CSS (utilisées via L.divIcon) --- */
+    /* --- Icônes "pointeur" en CSS (via L.divIcon) --- */
     .pin {
       position: relative;
       width: 22px; height: 22px;
@@ -45,6 +55,7 @@
       transform: rotate(-45deg);
       box-shadow: 0 1px 4px rgba(0,0,0,.4);
       border: 1px solid rgba(0,0,0,.25);
+      background: #fff;
     }
     .pin::after {
       content: '';
@@ -59,9 +70,31 @@
     .pin-yellow { background: var(--frelon); }
     .pin-blue { background: var(--prob); }
 
-    /* Version réduite pour la légende */
     .pin.pin-sm { width: 16px; height: 16px; }
     .pin.pin-sm::after { width: 6px; height: 6px; left: 5px; top: 5px; }
+
+    /* --- Clusters personnalisés --- */
+    .cluster {
+      border-radius: 50%;
+      width: 40px; height: 40px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.35);
+      border: 2px solid #fff;
+      display: grid; place-items: center;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .cluster.cluster-yellow {
+      background: rgba(255, 211, 77, .95);
+      color: #202020;
+    }
+    .cluster.cluster-red {
+      background: rgba(255, 90, 90, .95);
+      color: #fff;
+    }
+    .cluster.cluster-mixed {
+      background: conic-gradient(rgba(255,211,77,.95) 0 50%, rgba(255,90,90,.95) 50% 100%);
+      color: #1a1a1a;
+    }
   </style>
 </head>
 <body>
@@ -100,17 +133,20 @@
     crossorigin=""
   ></script>
 
-  <!-- Plugin Heatmap pour Leaflet -->
+  <!-- MarkerCluster JS -->
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Heatmap -->
   <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
 
-  <!-- Firebase v9 (modular) CDN -->
+  <!-- Firebase v9 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-    // 👉 config Firebase
+    // 👉 config Firebase (reprends ta config d’origine)
     const firebaseConfig = {
-      apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiZKMo4vos4", // (reprend ta clé d’origine)
+      apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiKMo4vos4",
       authDomain: "frelonsasiatiques-d71cc.firebaseapp.com",
       projectId: "frelonsasiatiques-d71cc",
       storageBucket: "frelonsasiatiques-d71cc.firebasestorage.app",
@@ -129,6 +165,27 @@
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
+
+    // Cluster layer (un seul groupe pour frelons & nids)
+    const clusters = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      disableClusteringAtZoom: 16,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      chunkedLoading: true,
+      iconCreateFunction: (cluster) => {
+        const markers = cluster.getAllChildMarkers();
+        let nf = 0, nn = 0;
+        for (const m of markers) { if (m.__type === 'nid') nn++; else nf++; }
+        const cls = nn > nf ? 'cluster-red' : (nf > nn ? 'cluster-yellow' : 'cluster-mixed');
+        return L.divIcon({
+          html: `<div>${markers.length}</div>`,
+          className: `cluster ${cls}`,
+          iconSize: [40, 40]
+        });
+      }
+    });
+    map.addLayer(clusters);
 
     const state = {
       markers: [],      // pointeurs frelons/nids
@@ -171,7 +228,7 @@
       return L.divIcon({
         className: `pin pin-${color}`,
         iconSize: [22, 22],
-        iconAnchor: [11, 22],   // pointe du pin
+        iconAnchor: [11, 22],
         popupAnchor: [0, -18]
       });
     }
@@ -275,21 +332,32 @@
         .replaceAll("'", '&#039;');
     }
 
-    function applyFilters() {
-      state.markers.forEach(m => {
-        const visible =
+    // --- (nouveau) Synchroniser les marqueurs visibles avec le cluster ---
+    function syncCluster() {
+      clusters.clearLayers();
+      const visible = [];
+      for (const m of state.markers) {
+        const isVisible =
           (m.__type === 'nid' && state.filters.nid) ||
           (m.__type === 'frelon' && state.filters.frelon);
-        if (visible) m.addTo(map); else map.removeLayer(m);
-      });
-      // Heatmap et zones probables gérées séparément.
+        if (isVisible) visible.push(m);
+      }
+      if (visible.length) clusters.addLayers(visible);
+    }
+
+    function applyFilters() {
+      syncCluster(); // on gère l’affichage via le cluster
     }
 
     function fitToData() {
-      const visible = state.markers.filter(m => map.hasLayer(m));
-      if (!visible.length) return;
-      const group = L.featureGroup(visible);
-      map.fitBounds(group.getBounds().pad(0.2));
+      const hasCluster = clusters.getLayers().length > 0;
+      const zoneLayers = state.probLayers.filter(l => map.hasLayer(l));
+      if (hasCluster) {
+        map.fitBounds(clusters.getBounds().pad(0.2));
+      } else if (zoneLayers.length) {
+        const group = L.featureGroup(zoneLayers);
+        map.fitBounds(group.getBounds().pad(0.2));
+      }
     }
 
     // --- Construction des zones probables de nid (quantité prioritaire) ---
@@ -321,6 +389,7 @@
         return Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER) * Math.exp(-days / NEST.TAU_DAYS);
       });
 
+      // Clusters pondérés
       const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
       const { labels } = dbscanWeighted(pts, Wcluster, NEST.R95_M, NEST.MIN_CLUSTER_WEIGHT);
 
@@ -366,14 +435,13 @@
         if (best.lat == null) continue;
 
         // Préparer les détails pour la popup (tri par poids décroissant)
-        const nowMs = Date.now();
         const rows = idxs.map(i => {
           const di = fresh[i];
           const dt = toJsDate(di.date);
-          const ageDays = dt ? Math.round((nowMs - dt.getTime()) / 86400000) : null;
+          const ageDays = dt ? Math.round((now - dt.getTime()) / 86400000) : null;
           const dist = haversineMeters({ lat: best.lat, lng: best.lng }, { lat: di.lat, lng: di.lng });
           const q = qEff(di.quantity);
-          const w = Math.pow(1 + q, NEST.BETA) * (dt ? Math.exp(-((nowMs - dt.getTime())/86400000)/NEST.TAU_DAYS) : 0);
+          const w = Math.pow(1 + q, NEST.BETA) * (dt ? Math.exp(-((now - dt.getTime())/86400000)/NEST.TAU_DAYS) : 0);
           return {
             dateStr: formatDate(di.date), ageDays, q,
             lat: di.lat, lng: di.lng, dist, weight: w,
@@ -405,8 +473,8 @@
         // Cercle BLEU
         const circle = L.circle([best.lat, best.lng], {
           radius: rp,
-          color: 'var(--prob)',
-          fillColor: 'var(--prob)',
+          color: getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff',
+          fillColor: getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff',
           fillOpacity: 0.12,
           weight: 2
         }).bindPopup(popupHtml);
@@ -430,9 +498,9 @@
 
       state.raw = [];
 
-      // Nettoyage anciens marqueurs
-      state.markers.forEach(m => map.removeLayer(m));
-      state.markers = [];
+      // Nettoyage anciens marqueurs (cluster se recharge via syncCluster)
+      state.markers.length = 0;
+      clusters.clearLayers();
 
       snap.forEach(doc => {
         const d = doc.data();
@@ -449,11 +517,11 @@
         };
         state.raw.push(item);
 
-        const marker = makeMarker(item); // POINTEUR rouge/jaune
+        const marker = makeMarker(item);
         state.markers.push(marker);
       });
 
-      // Ajout des markers selon filtres
+      // Appliquer filtres -> ajoute les bons markers au cluster
       applyFilters();
 
       // --- Heatmap orange (visualisation) ---
