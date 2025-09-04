@@ -6,42 +6,93 @@
   <title>Carte des signalements – Frelon asiatique (MVP)</title>
 
   <!-- Leaflet CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous"/>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
 
   <!-- MarkerCluster CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
 
   <style>
-    :root{
-      --bg:#0b1020; --panel:#131b33; --text:#e6ecff;
-      --frelon:#ffd34d; --nid:#ff5a5a; --prob:#3aa3ff;
+    :root {
+      --bg: #0b1020;
+      --panel: #131b33;
+      --muted: #9fb0d0;
+      --frelon: #ffd34d;  /* jaune */
+      --nid: #ff5a5a;     /* rouge */
+      --prob: #3aa3ff;    /* bleu */
+      --text: #e6ecff;
     }
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial}
-    #app{display:grid;grid-template-rows:auto 1fr;height:100%}
-    header{display:flex;gap:12px;align-items:center;padding:10px 14px;background:var(--panel);border-bottom:1px solid #202a4a}
-    header h1{font-size:16px;margin:0;font-weight:600}
-    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    .badge{padding:4px 8px;border-radius:999px;font-size:12px;background:#0e1630;border:1px solid #243058}
-    #map{width:100%;height:calc(100vh - 62px)}
-    .btn{background:#1a2240;color:var(--text);border:1px solid #2a3869;border-radius:10px;padding:6px 10px;cursor:pointer;font-size:14px}
-    .btn:hover{background:#212c52}
-    .leaflet-popup-content{color:#0b1020}
-    .toast{position:fixed;top:12px;right:12px;background:#0e1630;border:1px solid #243058;color:var(--text);padding:10px 12px;border-radius:12px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.25);display:none}
-    .toast.show{display:block}
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; }
+    #app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+    header { display: flex; gap: 12px; align-items: center; padding: 10px 14px; background: var(--panel); border-bottom: 1px solid #202a4a; }
+    header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .badge { padding: 4px 8px; border-radius: 999px; font-size: 12px; background: #0e1630; border: 1px solid #243058; }
+    .legend { display: flex; gap: 14px; align-items: center; }
+    #map { width: 100%; height: calc(100vh - 62px); }
+    .btn { background: #1a2240; color: var(--text); border: 1px solid #2a3869; border-radius: 10px; padding: 6px 10px; cursor: pointer; font-size: 14px; }
+    .btn:hover { background: #212c52; }
+    .leaflet-popup-content { color: #0b1020; }
+    .toast { position: fixed; top: 12px; right: 12px; background: #0e1630; border: 1px solid #243058; color: var(--text); padding: 10px 12px; border-radius: 12px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.25); display: none; }
+    .toast.show { display: block; }
 
-    /* Select filtre temps */
-    select.select{background:#1a2240;color:var(--text);border:1px solid #2a3869;border-radius:10px;padding:6px 10px;font-size:14px}
+    /* Select (filtre temps) */
+    select.select {
+      background: #1a2240; color: var(--text);
+      border: 1px solid #2a3869; border-radius: 10px;
+      padding: 6px 10px; font-size: 14px;
+    }
 
-    /* Légende */
-    .legend{display:flex;gap:14px;align-items:center}
-    .legend-entry{display:flex;align-items:center;gap:6px}
-    .legend-entry img{width:18px;height:18px;display:block}
+    /* --- Icônes "pointeur" en CSS (via L.divIcon) --- */
+    .pin {
+      position: relative;
+      width: 22px; height: 22px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      box-shadow: 0 1px 4px rgba(0,0,0,.4);
+      border: 1px solid rgba(0,0,0,.25);
+      background: #fff;
+    }
+    .pin::after {
+      content: '';
+      position: absolute;
+      width: 8px; height: 8px;
+      left: 7px; top: 7px;
+      background: #fff;
+      border-radius: 50%;
+      transform: rotate(45deg);
+    }
+    .pin-red { background: var(--nid); }
+    .pin-yellow { background: var(--frelon); }
+    .pin-blue { background: var(--prob); }
 
-    /* Clusters personnalisés (affiche comptage abeilles/nids) */
-    .cluster2{border-radius:12px;background:#fff;color:#111;padding:6px 8px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);display:grid;gap:2px}
-    .cluster2 .row{display:flex;gap:4px;align-items:center;line-height:1}
-    .cluster2 .row img{width:14px;height:14px}
+    .pin.pin-sm { width: 16px; height: 16px; }
+    .pin.pin-sm::after { width: 6px; height: 6px; left: 5px; top: 5px; }
+
+    /* --- Clusters personnalisés --- */
+    .cluster {
+      border-radius: 50%;
+      width: 40px; height: 40px;
+      box-shadow: 0 2px 6px rgba(0,0,0,.35);
+      border: 2px solid #fff;
+      display: grid; place-items: center;
+      font-weight: 800;
+      line-height: 1;
+    }
+    .cluster.cluster-yellow { background: rgba(255, 211, 77, .95); color: #202020; }
+    .cluster.cluster-red { background: rgba(255, 90, 90, .95); color: #fff; }
+    .cluster.cluster-mixed { background: conic-gradient(rgba(255,211,77,.95) 0 50%, rgba(255,90,90,.95) 50% 100%); color: #1a1a1a; }
   </style>
 </head>
 <body>
@@ -51,17 +102,18 @@
       <div class="controls">
         <span id="countBadge" class="badge">Chargement…</span>
 
+        <!-- Légende -->
         <div class="legend">
-          <label class="legend-entry">
-            <img id="icoLegendFrelon" alt="Frelons observés"/>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-yellow"></span>
             <input type="checkbox" id="toggleFrelon" checked> Frelons
           </label>
-          <label class="legend-entry">
-            <img id="icoLegendNid" alt="Nid signalé"/>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-red"></span>
             <input type="checkbox" id="toggleNid" checked> Nids
           </label>
-          <label class="legend-entry">
-            <img id="icoLegendProb" alt="Épicentre de nid probable"/>
+          <label style="display:flex;align-items:center;gap:6px;">
+            <span class="pin pin-sm pin-blue"></span>
             <input type="checkbox" id="toggleZones" checked> Zones probables
           </label>
         </div>
@@ -85,9 +137,13 @@
   <div id="toast" class="toast">Position introuvable.</div>
 
   <!-- Leaflet JS -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous"></script>
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
 
-  <!-- MarkerCluster -->
+  <!-- MarkerCluster JS -->
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
   <!-- Heatmap -->
@@ -98,7 +154,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getFirestore, collection, getDocs, query, orderBy } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-    // --- Config Firebase (reprends la tienne) ---
+    // 👉 config Firebase (reprends ta config d’origine)
     const firebaseConfig = {
       apiKey: "AIzaSyDBhvHztC4w2MYbQG2rTtdJgMiKMo4vos4",
       authDomain: "frelonsasiatiques-d71cc.firebaseapp.com",
@@ -108,338 +164,484 @@
       appId: "1:895220865652:web:f9c3656604e4b8bb048f21",
       measurementId: "G-P6X6Z218K8"
     };
+
+    // Init Firebase
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
-    // --- Icônes SVG intégrés (data URI) ---
-    const beeSVG = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <g stroke="#1a1a1a" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="16" cy="19" rx="7.8" ry="5.2" fill="#ffd34d"/>
-    <path d="M9.2,18h13.6M9.2,20.6h13.6" stroke="#1a1a1a"/>
-    <ellipse cx="12.2" cy="11" rx="5.2" ry="3.6" fill="#e6f7ff" opacity=".9"/>
-    <ellipse cx="19.8" cy="11" rx="5.2" ry="3.6" fill="#e6f7ff" opacity=".9"/>
-    <circle cx="16" cy="23.2" r="2.1" fill="#1a1a1a"/>
-  </g>
-</svg>`;
-    const nestSVG = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <g stroke="#8a1f1f" stroke-width="1.2" stroke-linejoin="round">
-    <path d="M16 4c6 0 10 3 10 6s-4 6-10 6S6 13 6 10 10 4 16 4Z" fill="#ff9a9a"/>
-    <path d="M16 9c5 0 8 2.5 8 4s-3 4-8 4-8-2.5-8-4 3-4 8-4Z" fill="#ff6f6f"/>
-    <ellipse cx="16" cy="20.5" rx="6.2" ry="3.2" fill="#ff5a5a"/>
-  </g>
-</svg>`;
-    const targetSVG = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <circle cx="16" cy="16" r="12" fill="#cfe7ff"/>
-  <circle cx="16" cy="16" r="8" fill="#88c5ff"/>
-  <circle cx="16" cy="16" r="4.5" fill="#3aa3ff"/>
-  <circle cx="16" cy="16" r="1.8" fill="#0d6efd"/>
-</svg>`;
+    // ------- Leaflet map -------
+    const map = L.map('map', { zoomControl: true, attributionControl: true }).setView([46.7, 2.5], 6); // Vue générale France
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
 
-    const svgUrl = (s)=>'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(s.trim());
-    const ICON_URLS = { bee: svgUrl(beeSVG), nest: svgUrl(nestSVG), target: svgUrl(targetSVG) };
-
-    // Injecter les icônes dans la légende
-    document.getElementById('icoLegendFrelon').src = ICON_URLS.bee;
-    document.getElementById('icoLegendNid').src    = ICON_URLS.nest;
-    document.getElementById('icoLegendProb').src   = ICON_URLS.target;
-
-    // Fabrique d'icônes Leaflet (popup collée au marqueur)
-    function imgIcon(url){
-      return L.icon({
-        iconUrl: url,
-        iconSize: [28,28],
-        iconAnchor: [14,26],  // pointe
-        popupAnchor: [0,-22]  // popup collée
-      });
-    }
-    const ICONS = {
-      frelon: imgIcon(ICON_URLS.bee),
-      nid:    imgIcon(ICON_URLS.nest),
-      prob:   imgIcon(ICON_URLS.target)
-    };
-
-    // ------- Carte -------
-    const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([46.7, 2.5], 6);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
-
-    // Clusters (avec comptage par type)
+    // Cluster layer (un seul groupe pour frelons & nids)
     const clusters = L.markerClusterGroup({
       maxClusterRadius: 60,
       disableClusteringAtZoom: 16,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
       chunkedLoading: true,
-      iconCreateFunction: (cl) => {
-        const arr = cl.getAllChildMarkers();
-        let nf=0, nn=0;
-        for(const m of arr){ if(m.__type==='nid') nn++; else nf++; }
-        const html = `
-          <div class="cluster2">
-            <div class="row"><img src="${ICON_URLS.bee}" alt=""> ${nf}</div>
-            <div class="row"><img src="${ICON_URLS.nest}" alt=""> ${nn}</div>
-          </div>`;
-        return L.divIcon({ html, className:'', iconSize:[44,40] });
+      iconCreateFunction: (cluster) => {
+        const markers = cluster.getAllChildMarkers();
+        let nf = 0, nn = 0;
+        for (const m of markers) { if (m.__type === 'nid') nn++; else nf++; }
+        const cls = nn > nf ? 'cluster-red' : (nf > nn ? 'cluster-yellow' : 'cluster-mixed');
+        return L.divIcon({
+          html: `<div>${markers.length}</div>`,
+          className: `cluster ${cls}`,
+          iconSize: [40, 40]
+        });
       }
     });
     map.addLayer(clusters);
 
-    // ------- État -------
     const state = {
-      markers: [],
+      markers: [],      // pointeurs frelons/nids
       raw: [],
-      heatLayer: null,
-      probLayers: [],
-      filters: { frelon:true, nid:true },
+      heatLayer: null,  // heatmap
+      probLayers: [],   // cercle(s) + pointeur(s) bleus
+      filters: { frelon: true, nid: true },
       showZones: true,
-      timeFilter: 'month'
+      timeFilter: 'month' // défaut: Ce mois-ci
     };
 
-    // ----- Réglages algo (poids & zones probables) -----
+    // ----- Réglages (algo) -----
     const NEST = {
-      TAU_DAYS: 14,
-      BETA: 1.0,
-      BETA_CLUSTER: 1.0,
-      MIN_CLUSTER_WEIGHT: 6,
-      Q_MAX: 50,
-      R95_M: 1000,
-      GRID_STEP_M: 250,
-      PROB_P: 0.6
+      TAU_DAYS: 14,           // décroissance temporelle
+      BETA: 1.0,              // poids quantité pour le score
+      BETA_CLUSTER: 1.0,      // poids quantité pour le clustering
+      MIN_CLUSTER_WEIGHT: 6,  // seuil de densité pondérée
+      Q_MAX: 50,              // borne anti-outliers
+      R95_M: 1000,            // portée typique
+      GRID_STEP_M: 250,       // pas de grille
+      PROB_P: 0.6             // cercle p=60%
     };
-    NEST.SIGMA_M = NEST.R95_M / 2.447;
+    NEST.SIGMA_M = NEST.R95_M / 2.447; // ≈ 408 m si R95=1000 m
 
-    // --- Helpers géo/temps ---
+    // --- Aides géo ---
     function toRad(d){ return d*Math.PI/180; }
-    function haversineMeters(a,b){
+    function haversineMeters(a, b){
       const R = 6371000;
-      const dLat=toRad(b.lat-a.lat), dLng=toRad(b.lng-a.lng);
-      const sa=Math.sin(dLat/2), sb=Math.sin(dLng/2);
-      const h=sa*sa+Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*sb*sb;
+      const dLat = toRad(b.lat - a.lat);
+      const dLng = toRad(b.lng - a.lng);
+      const sa = Math.sin(dLat/2), sb = Math.sin(dLng/2);
+      const h = sa*sa + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*sb*sb;
       return 2*R*Math.asin(Math.sqrt(h));
     }
-    function metersToDegLat(m){ return m/111320; }
-    function metersToDegLng(m,lat){ return m/(111320*Math.cos(toRad(lat))); }
+    function metersToDegLat(m){ return m / 111320; }
+    function metersToDegLng(m, lat){ return m / (111320 * Math.cos(toRad(lat))); }
 
-    // DBSCAN pondéré
-    function dbscanWeighted(points, weights, epsMeters, minWeight){
-      const n = points.length, labels = Array(n).fill(-1); let cid=0;
-      const neighbors = (i)=>{ const r=[]; for(let j=0;j<n;j++){ if(i!==j && haversineMeters(points[i],points[j])<=epsMeters) r.push(j);} return r; };
-      const neighWeight = (i,ns)=> ns.reduce((s,j)=>s+weights[j],weights[i]);
-      for(let i=0;i<n;i++){
-        if(labels[i]!==-1) continue;
-        const ns=neighbors(i);
-        if(neighWeight(i,ns)<minWeight){ labels[i]=-2; continue; }
-        labels[i]=cid; const seeds=[...ns];
-        for(let k=0;k<seeds.length;k++){
-          const j=seeds[k]; if(labels[j]===-2) labels[j]=cid; if(labels[j]!==-1) continue;
-          labels[j]=cid; const nsj=neighbors(j);
-          if(neighWeight(j,nsj)>=minWeight){ for(const x of nsj) if(!seeds.includes(x)) seeds.push(x); }
-        } cid++;
-      }
-      return { labels, clusters: cid };
+    // --- Icônes pointeur (popup collée) ---
+    function pinIcon(color){
+      return L.divIcon({
+        className: `pin pin-${color}`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 22],   // pointe du pin
+        popupAnchor: [0, -12]   // popup collée (ajusté finement)
+      });
     }
 
-    // Dates robustes
-    function toJsDate(val){
-      if(!val) return null;
-      if(val && typeof val.toDate==='function') return val.toDate();
-      if(val instanceof Date) return isNaN(val.getTime())?null:val;
-      if(typeof val==='number'){ const d=new Date(val<1e12?val*1000:val); return isNaN(d.getTime())?null:d; }
-      if(typeof val==='string'){ const s=val.trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(s)){ const d=new Date(s+'T00:00:00Z'); return isNaN(d.getTime())?null:d; } const d=new Date(s); return isNaN(d.getTime())?null:d; }
+    // --- DBSCAN pondéré ---
+    function dbscanWeighted(points, weights, epsMeters, minWeight){
+      const n = points.length;
+      const labels = Array(n).fill(-1); // -1: non visité, -2: bruit, >=0: cluster id
+      let cid = 0;
+
+      function neighbors(i){
+        const idxs = [];
+        for (let j=0;j<n;j++){
+          if (i===j) continue;
+          if (haversineMeters(points[i], points[j]) <= epsMeters) idxs.push(j);
+        }
+        return idxs;
+      }
+      function neighWeight(i, neighIdxs){
+        let s = weights[i];
+        for (const j of neighIdxs) s += weights[j];
+        return s;
+      }
+
+      for (let i=0;i<n;i++){
+        if (labels[i] !== -1) continue;
+        const neigh = neighbors(i);
+        if (neighWeight(i, neigh) < minWeight){ labels[i] = -2; continue; } // bruit
+        labels[i] = cid;
+        const seeds = [...neigh];
+        for (let k=0;k<seeds.length;k++){
+          const j = seeds[k];
+          if (labels[j] === -2) labels[j] = cid;
+          if (labels[j] !== -1) continue;
+          labels[j] = cid;
+          const nj = neighbors(j);
+          if (neighWeight(j, nj) >= minWeight){
+            for (const x of nj){ if (!seeds.includes(x)) seeds.push(x); }
+          }
+        }
+        cid++;
+      }
+      return {labels, clusters: cid};
+    }
+
+    // --- Dates robustes ---
+    function toJsDate(val) {
+      if (!val) return null;
+      if (val && typeof val.toDate === 'function') return val.toDate();
+      if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+      if (typeof val === 'number') {
+        const d = new Date(val < 1e12 ? val * 1000 : val);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      if (typeof val === 'string') {
+        const s = val.trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+          const d = new Date(s + 'T00:00:00Z');
+          return isNaN(d.getTime()) ? null : d;
+        }
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+      }
       return null;
     }
-    function formatDate(val){
-      const d=toJsDate(val); if(!d) return '—';
-      const dd=String(d.getDate()).padStart(2,'0'), mm=String(d.getMonth()+1).padStart(2,'0'), yy=d.getFullYear();
-      return `${dd}-${mm}-${yy}`;
+
+    function formatDate(val) {
+      const d = toJsDate(val);
+      if (!d) return '—';
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+      return `${dd}-${mm}-${yyyy}`;
     }
 
-    // Filtre temporel
-    function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const day=x.getDay(); const delta=(day===0?-6:1-day); x.setDate(x.getDate()+delta); return x; }
-    function getTimeRange(key){
-      const now=new Date(); const end=new Date(); end.setHours(23,59,59,999); let start=null;
-      if(key==='week') start=startOfWeek(now);
-      else if(key==='month') start=new Date(now.getFullYear(),now.getMonth(),1,0,0,0,0);
-      else if(key==='year') start=new Date(now.getFullYear(),0,1,0,0,0,0);
-      else if(key==='lastyear'){ start=new Date(now.getFullYear()-1,0,1,0,0,0,0); end.setFullYear(now.getFullYear(),0,0); end.setHours(23,59,59,999); }
-      else if(key==='all') start=null;
-      return {start,end};
+    // --- Filtre temporel ---
+    function startOfWeek(d){
+      const x = new Date(d); x.setHours(0,0,0,0);
+      const day = x.getDay(); // 0=dim..6=sam
+      const delta = (day === 0 ? -6 : 1 - day); // Lundi
+      x.setDate(x.getDate() + delta);
+      return x;
     }
-    function dateInRange(val,range){ const d=toJsDate(val); if(!d) return false; if(range.start && d<range.start) return false; if(range.end && d>range.end) return false; return true; }
+    function getTimeRange(filterKey){
+      const now = new Date();
+      const end = new Date(); // maintenant
+      end.setHours(23,59,59,999);
+      let start = null;
 
-    // Markers (icônes images)
-    function makeMarker(item){
-      const marker = L.marker([item.lat,item.lng], { icon: (item.type==='nid'?ICONS.nid:ICONS.frelon) });
-      const title = item.type==='nid'?'Nid signalé':'Frelons observés';
-      marker.bindPopup(`<strong>${title}</strong><br>Quantité : ${item.quantity ?? '—'}<br>Vu le : ${formatDate(item.date)}`);
-      marker.__type=item.type; marker.__data=item;
+      if (filterKey === 'week'){
+        start = startOfWeek(now);
+      } else if (filterKey === 'month'){
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0,0,0,0);
+      } else if (filterKey === 'year'){
+        start = new Date(now.getFullYear(), 0, 1, 0,0,0,0);
+      } else if (filterKey === 'lastyear'){
+        start = new Date(now.getFullYear()-1, 0, 1, 0,0,0,0);
+        end.setFullYear(now.getFullYear(), 0, 0); // 31/12 de l'an dernier
+        end.setHours(23,59,59,999);
+      } else if (filterKey === 'all'){
+        start = null; // pas de borne
+      }
+      return { start, end };
+    }
+    function dateInRange(val, range){
+      const d = toJsDate(val);
+      if (!d) return false;
+      if (range.start && d < range.start) return false;
+      if (range.end && d > range.end) return false;
+      return true;
+    }
+
+    // --- Markers frelons/nids (POINTEURS) ---
+    function makeMarker(item) {
+      const icon = item.type === 'nid' ? pinIcon('red') : pinIcon('yellow');
+      const marker = L.marker([item.lat, item.lng], { icon });
+
+      const title = item.type === 'nid' ? 'Nid signalé' : 'Frelons observés';
+      const quantity = (item.quantity ?? '—');
+      let seen = '—';
+      try { seen = formatDate(item.date); } catch(_) {}
+
+      marker.bindPopup(
+        `<strong>${title}</strong><br>
+         Quantité : ${quantity}<br>
+         Vu le : ${seen}`
+      );
+      marker.__type = item.type;
+      marker.__data = item; // pour le filtre temps
       return marker;
     }
 
-    function escapeHtml(str){ return String(str).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;'); }
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
 
-    // Sync cluster avec filtres & temps
-    function syncCluster(){
+    // --- Synchroniser les marqueurs visibles avec le cluster (filtres + temps) ---
+    function syncCluster() {
       clusters.clearLayers();
-      const {start,end}=getTimeRange(state.timeFilter);
-      const visible=[];
-      for(const m of state.markers){
-        const inTime=dateInRange(m.__data.date,{start,end});
-        const byType=(m.__type==='nid'&&state.filters.nid)||(m.__type==='frelon'&&state.filters.frelon);
-        if(inTime && byType) visible.push(m);
+      const { start, end } = getTimeRange(state.timeFilter);
+      const visible = [];
+      for (const m of state.markers) {
+        const inTime = dateInRange(m.__data.date, {start, end});
+        const byType =
+          (m.__type === 'nid' && state.filters.nid) ||
+          (m.__type === 'frelon' && state.filters.frelon);
+        if (inTime && byType) visible.push(m);
       }
-      if(visible.length) clusters.addLayers(visible);
+      if (visible.length) clusters.addLayers(visible);
+
+      // compteur
       document.getElementById('countBadge').textContent = `${visible.length} signalement(s)`;
     }
 
-    // Heatmap (données filtrées)
-    function rebuildHeatmap(){
-      if(state.heatLayer){ map.removeLayer(state.heatLayer); state.heatLayer=null; }
-      const {start,end}=getTimeRange(state.timeFilter);
-      const filtered=state.raw.filter(d=>dateInRange(d.date,{start,end}));
-      if(!filtered.length) return;
-      const heatPoints=filtered.map(d=>{
-        const base=Math.min(Math.max(Number(d.quantity)||0,0),NEST.Q_MAX);
-        const weight=Math.max(0.2,Math.min(1,base/10));
-        return [d.lat,d.lng,weight];
+    // --- Heatmap (sur données filtrées) ---
+    function rebuildHeatmap() {
+      if (state.heatLayer) { map.removeLayer(state.heatLayer); state.heatLayer = null; }
+      const { start, end } = getTimeRange(state.timeFilter);
+      const filtered = state.raw.filter(d => dateInRange(d.date, {start, end}));
+      if (!filtered.length) return;
+      const heatPoints = filtered.map(d => {
+        const base = Math.min(Math.max(Number(d.quantity)||0, 0), NEST.Q_MAX);
+        const weight = Math.max(0.2, Math.min(1, base / 10));
+        return [d.lat, d.lng, weight];
       });
-      state.heatLayer=L.heatLayer(heatPoints,{radius:28,blur:18,maxZoom:17,
-        gradient:{0.2:'#FFE8CC',0.4:'#FFC285',0.6:'#FF9A3A',0.8:'#FF7A1A',1.0:'#FF5A00'}}).addTo(map);
+      state.heatLayer = L.heatLayer(heatPoints, {
+        radius: 28, blur: 18, maxZoom: 17,
+        gradient: { 0.2: '#FFE8CC', 0.4: '#FFC285', 0.6: '#FF9A3A', 0.8: '#FF7A1A', 1.0: '#FF5A00' }
+      }).addTo(map);
     }
 
-    function fitToData(){
-      const hasCluster = clusters.getLayers().length>0;
-      const zoneLayers = state.probLayers.filter(l=>map.hasLayer(l));
-      if(hasCluster) map.fitBounds(clusters.getBounds().pad(0.2));
-      else if(zoneLayers.length){ const g=L.featureGroup(zoneLayers); map.fitBounds(g.getBounds().pad(0.2)); }
+    function fitToData() {
+      const hasCluster = clusters.getLayers().length > 0;
+      const zoneLayers = state.probLayers.filter(l => map.hasLayer(l));
+      if (hasCluster) {
+        map.fitBounds(clusters.getBounds().pad(0.2));
+      } else if (zoneLayers.length) {
+        const group = L.featureGroup(zoneLayers);
+        map.fitBounds(group.getBounds().pad(0.2));
+      }
     }
 
-    // Zones probables (cercle + cible bleue)
-    function buildProbableZones(){
-      state.probLayers.forEach(l=>map.removeLayer(l)); state.probLayers=[];
-      const {start,end}=getTimeRange(state.timeFilter);
-      const fresh=state.raw.filter(d=>d.type==='frelon').filter(d=>dateInRange(d.date,{start,end}));
-      if(fresh.length<2) return;
+    // --- Construction des zones probables de nid (sur données filtrées) ---
+    function buildProbableZones() {
+      // Nettoyage (cercle + marqueurs bleus)
+      state.probLayers.forEach(l => map.removeLayer(l));
+      state.probLayers = [];
 
-      const qEff=(q)=>Math.min(Math.max(Number(q)||0,0),NEST.Q_MAX);
-      const now=Date.now();
-      const Wscore=fresh.map(d=>{ const dt=toJsDate(d.date); const days=dt?(now-dt.getTime())/86400000:0; return Math.pow(1+qEff(d.quantity),NEST.BETA)*Math.exp(-days/NEST.TAU_DAYS); });
-      const Wcluster=fresh.map(d=>{ const dt=toJsDate(d.date); const days=dt?(now-dt.getTime())/86400000:0; return Math.pow(1+qEff(d.quantity),NEST.BETA_CLUSTER)*Math.exp(-days/NEST.TAU_DAYS); });
+      const { start, end } = getTimeRange(state.timeFilter);
+      const fresh = state.raw
+        .filter(d => d.type === 'frelon')
+        .filter(d => dateInRange(d.date, {start, end}));
 
-      const pts=fresh.map(d=>({lat:d.lat,lng:d.lng}));
-      const {labels}=dbscanWeighted(pts,Wcluster,NEST.R95_M,NEST.MIN_CLUSTER_WEIGHT);
-      let cidSet=new Set(labels.filter(l=>l>=0)); if(cidSet.size===0){ cidSet=new Set([0]); labels.fill(0); }
-      const rp = NEST.SIGMA_M * Math.sqrt(-2*Math.log(1-NEST.PROB_P));
+      if (fresh.length < 2) return;
 
-      for(const cid of cidSet){
-        const idxs=labels.map((v,i)=>v===cid?i:-1).filter(i=>i>=0);
-        if(idxs.length<2) continue;
+      const qEff = (q) => Math.min(Math.max(Number(q) || 0, 0), NEST.Q_MAX);
+
+      // Poids score / clustering (avec décroissance temporelle)
+      const now = Date.now();
+      const Wscore = fresh.map(d => {
+        const dt = toJsDate(d.date);
+        const days = dt ? (now - dt.getTime()) / 86400000 : 0;
+        return Math.pow(1 + qEff(d.quantity), NEST.BETA) * Math.exp(-days / NEST.TAU_DAYS);
+      });
+      const Wcluster = fresh.map(d => {
+        const dt = toJsDate(d.date);
+        const days = dt ? (now - dt.getTime()) / 86400000 : 0;
+        return Math.pow(1 + qEff(d.quantity), NEST.BETA_CLUSTER) * Math.exp(-days / NEST.TAU_DAYS);
+      });
+
+      // Clusters pondérés
+      const pts = fresh.map(d => ({ lat: d.lat, lng: d.lng }));
+      const { labels } = dbscanWeighted(pts, Wcluster, NEST.R95_M, NEST.MIN_CLUSTER_WEIGHT);
+
+      let cidSet = new Set(labels.filter(l => l >= 0));
+      if (cidSet.size === 0) { cidSet = new Set([0]); labels.fill(0); }
+      const clusterIds = [...cidSet];
+
+      const rp = NEST.SIGMA_M * Math.sqrt(-2 * Math.log(1 - NEST.PROB_P)); // rayon p
+      const probColor = (getComputedStyle(document.documentElement).getPropertyValue('--prob') || '#3aa3ff').trim();
+
+      for (const cid of clusterIds) {
+        const idxs = labels.map((v, i) => (v === cid ? i : -1)).filter(i => i >= 0);
+        if (idxs.length < 2) continue;
 
         // Bounds + marge
-        let minLat=+Infinity,maxLat=-Infinity,minLng=+Infinity,maxLng=-Infinity;
-        idxs.forEach(i=>{ const {lat,lng}=fresh[i]; if(lat<minLat)minLat=lat; if(lat>maxLat)maxLat=lat; if(lng<minLng)minLng=lng; if(lng>maxLng)maxLng=lng; });
-        const lat0=(minLat+maxLat)/2;
-        minLat-=metersToDegLat(NEST.R95_M); maxLat+=metersToDegLat(NEST.R95_M);
-        minLng-=metersToDegLng(NEST.R95_M,lat0); maxLng+=metersToDegLng(NEST.R95_M,lat0);
+        let minLat = +Infinity, maxLat = -Infinity, minLng = +Infinity, maxLng = -Infinity;
+        idxs.forEach(i => {
+          const { lat, lng } = fresh[i];
+          if (lat < minLat) minLat = lat; if (lat > maxLat) maxLat = lat;
+          if (lng < minLng) minLng = lng; if (lng > maxLng) maxLng = lng;
+        });
+        const lat0 = (minLat + maxLat) / 2;
+        minLat -= metersToDegLat(NEST.R95_M);
+        maxLat += metersToDegLat(NEST.R95_M);
+        minLng -= metersToDegLng(NEST.R95_M, lat0);
+        maxLng += metersToDegLng(NEST.R95_M, lat0);
 
-        // Grille & max du score
-        const stepLat=metersToDegLat(NEST.GRID_STEP_M), stepLng=metersToDegLng(NEST.GRID_STEP_M,lat0);
-        let best={score:-1,lat:null,lng:null};
-        for(let lat=minLat;lat<=maxLat;lat+=stepLat){
-          for(let lng=minLng;lng<=maxLng;lng+=stepLng){
-            let s=0; for(const i of idxs){ const d=haversineMeters({lat,lng},pts[i]); s+=Wscore[i]*Math.exp(-(d*d)/(2*NEST.SIGMA_M*NEST.SIGMA_M)); }
-            if(s>best.score) best={score:s,lat,lng};
+        // Grille
+        const stepLat = metersToDegLat(NEST.GRID_STEP_M);
+        const stepLng = metersToDegLng(NEST.GRID_STEP_M, lat0);
+
+        // Max du score S(x)
+        let best = { score: -1, lat: null, lng: null };
+        for (let lat = minLat; lat <= maxLat; lat += stepLat) {
+          for (let lng = minLng; lng <= maxLng; lng += stepLng) {
+            let s = 0;
+            for (const i of idxs) {
+              const d = haversineMeters({ lat, lng }, pts[i]);
+              s += Wscore[i] * Math.exp(-(d * d) / (2 * NEST.SIGMA_M * NEST.SIGMA_M));
+            }
+            if (s > best.score) best = { score: s, lat, lng };
           }
         }
-        if(best.lat==null) continue;
+        if (best.lat == null) continue;
 
-        // Détails popup
-        const rows=idxs.map(i=>{
-          const di=fresh[i]; const dt=toJsDate(di.date); const ageDays=dt?Math.round((now-dt.getTime())/86400000):null;
-          const dist=haversineMeters({lat:best.lat,lng:best.lng},{lat:di.lat,lng:di.lng});
-          const q=qEff(di.quantity); const w=Math.pow(1+q,NEST.BETA)*(dt?Math.exp(-((now-dt.getTime())/86400000)/NEST.TAU_DAYS):0);
-          return {dateStr:formatDate(di.date),ageDays,q,lat:di.lat,lng:di.lng,dist,weight:w,desc:di.description?String(di.description):''};
-        }).sort((a,b)=>b.weight-a.weight);
-        const itemsHtml=rows.map(r=>{
-          const desc=r.desc ? ' — '+escapeHtml(r.desc.slice(0,140))+(r.desc.length>140?'…':'') : '';
-          return `<li><strong>${r.q}</strong> frelon(s) — ${r.dateStr}${r.ageDays!=null?` (${r.ageDays} j)`:''} — ${Math.round(r.dist)} m du centre<br><small>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}${desc}</small></li>`;
+        // Préparer la liste détaillée pour la popup
+        const rows = idxs.map(i => {
+          const di = fresh[i];
+          const dt = toJsDate(di.date);
+          const ageDays = dt ? Math.round((now - dt.getTime()) / 86400000) : null;
+          const dist = haversineMeters({ lat: best.lat, lng: best.lng }, { lat: di.lat, lng: di.lng });
+          const q = qEff(di.quantity);
+          const w = Math.pow(1 + q, NEST.BETA) * (dt ? Math.exp(-((now - dt.getTime())/86400000)/NEST.TAU_DAYS) : 0);
+          return {
+            dateStr: formatDate(di.date), ageDays, q,
+            lat: di.lat, lng: di.lng, dist, weight: w,
+            desc: di.description ? String(di.description) : ''
+          };
+        }).sort((a,b) => b.weight - a.weight);
+
+        const itemsHtml = rows.map(r => {
+          const desc = r.desc ? ' — ' + escapeHtml(r.desc.slice(0, 140)) + (r.desc.length > 140 ? '…' : '') : '';
+          return `<li>
+            <strong>${r.q}</strong> frelon(s) — ${r.dateStr}${r.ageDays!=null?` (${r.ageDays} j)`:''} — ${Math.round(r.dist)} m du centre
+            <br><small>${r.lat.toFixed(5)}, ${r.lng.toFixed(5)}${desc}</small>
+          </li>`;
         }).join('');
-        const totalQty=rows.reduce((a,r)=>a+r.q,0);
+        const totalQty = rows.reduce((acc,r)=>acc + r.q, 0);
 
-        const popupHtml=`
+        const popupHtml = `
           <strong>Zone probable de nid</strong><br>
-          p = ${(NEST.PROB_P*100).toFixed(0)}% — Rayon ≈ ${(rp/1000).toFixed(2)} km<br>
+          p = ${(NEST.PROB_P * 100).toFixed(0)}% — Rayon ≈ ${(rp / 1000).toFixed(2)} km<br>
           Basé sur ${idxs.length} déclaration(s) — Total frelons ≈ ${totalQty}
           <details style="margin-top:6px;">
             <summary>Voir les déclarations (${idxs.length})</summary>
             <ol style="margin:6px 0 0 18px; padding:0; max-height:180px; overflow:auto;">
               ${itemsHtml || '<li>Aucune</li>'}
             </ol>
-          </details>`;
+          </details>
+        `;
 
-        // Cercle bleu
-        const circle=L.circle([best.lat,best.lng],{
-          radius:rp,color:'#3aa3ff',fillColor:'#3aa3ff',fillOpacity:0.12,weight:2
+        // Cercle BLEU
+        const circle = L.circle([best.lat, best.lng], {
+          radius: rp,
+          color: probColor,
+          fillColor: probColor,
+          fillOpacity: 0.12,
+          weight: 2
         }).bindPopup(popupHtml);
 
-        // Épicentre (cible bleue)
-        const center=L.marker([best.lat,best.lng],{icon:ICONS.prob}).bindPopup(popupHtml);
+        // Pointeur BLEU à l'épicentre (popup collée)
+        const centerMarker = L.marker([best.lat, best.lng], { icon: pinIcon('blue') })
+          .bindPopup(popupHtml);
 
-        state.probLayers.push(circle,center);
-        if(state.showZones){ circle.addTo(map); center.addTo(map); }
+        state.probLayers.push(circle, centerMarker);
+        if (state.showZones) { circle.addTo(map); centerMarker.addTo(map); }
       }
     }
 
-    // Orchestration
-    function rebuildViews(){
+    // ---- Orchestration (à appeler à chaque changement de filtre) ----
+    function refreshViews(){
       syncCluster();
       rebuildHeatmap();
+      // Zones probables réévaluées sur la même période filtrée
       buildProbableZones();
+      // Ajuster la vue si nécessaire
+      // (ne pas recentrer agressivement si l'utilisateur a zoomé manuellement ? au besoin, commenter)
+      // fitToData();
     }
 
-    async function loadData(){
-      const badge=document.getElementById('countBadge'); badge.textContent='Chargement…';
-      const q = query(collection(db,'declaration'), orderBy('date','desc'));
+    async function loadData() {
+      const badge = document.getElementById('countBadge');
+      badge.textContent = 'Chargement…';
+
+      // Trie par date descendante pour avoir les plus récents d'abord
+      const q = query(collection(db, 'declaration'), orderBy('date', 'desc'));
       const snap = await getDocs(q);
 
-      state.raw=[]; state.markers.length=0; clusters.clearLayers();
-      snap.forEach(doc=>{
-        const d=doc.data();
-        if(typeof d.lat!=='number' || typeof d.lng!=='number') return;
-        const item={ type:(d.type==='nid'?'nid':'frelon'), lat:d.lat, lng:d.lng,
-          quantity: (typeof d.quantity==='number'?d.quantity:Number(d.quantity)||0),
-          date:d.date??null, description:d.description??'' };
+      state.raw = [];
+      state.markers.length = 0;
+      clusters.clearLayers();
+
+      snap.forEach(doc => {
+        const d = doc.data();
+        if (typeof d.lat !== 'number' || typeof d.lng !== 'number') return;
+
+        const item = {
+          type: (d.type === 'nid') ? 'nid' : 'frelon',
+          lat: d.lat,
+          lng: d.lng,
+          quantity: typeof d.quantity === 'number' ? d.quantity : Number(d.quantity) || 0,
+          date: d.date ?? null,
+          description: d.description ?? ''
+        };
         state.raw.push(item);
-        state.markers.push( makeMarker(item) );
+
+        const marker = makeMarker(item); // POINTEUR rouge/jaune + popup collée
+        state.markers.push(marker);
       });
 
-      rebuildViews();
+      refreshViews();
+      // On ne bouge la vue qu’au premier chargement
       fitToData();
     }
 
-    // UI
-    document.getElementById('toggleFrelon').addEventListener('change',e=>{ state.filters.frelon=e.target.checked; rebuildViews(); });
-    document.getElementById('toggleNid').addEventListener('change',e=>{ state.filters.nid=e.target.checked; rebuildViews(); });
-    document.getElementById('toggleZones').addEventListener('change',e=>{
-      state.showZones=e.target.checked;
-      state.probLayers.forEach(l=>{ if(state.showZones) l.addTo(map); else map.removeLayer(l); });
+    // UI handlers
+    document.getElementById('toggleFrelon').addEventListener('change', (e) => {
+      state.filters.frelon = e.target.checked;
+      refreshViews();
     });
-    document.getElementById('timeFilter').addEventListener('change',e=>{ state.timeFilter=e.target.value; rebuildViews(); });
-    document.getElementById('refreshBtn').addEventListener('click',e=>{ e.preventDefault(); loadData(); });
-    document.getElementById('locateBtn').addEventListener('click',()=>{
-      if(!navigator.geolocation) return showToast('Géolocalisation non supportée.');
+    document.getElementById('toggleNid').addEventListener('change', (e) => {
+      state.filters.nid = e.target.checked;
+      refreshViews();
+    });
+    document.getElementById('toggleZones').addEventListener('change', (e) => {
+      state.showZones = e.target.checked;
+      state.probLayers.forEach(l => { if (state.showZones) l.addTo(map); else map.removeLayer(l); });
+    });
+    document.getElementById('timeFilter').addEventListener('change', (e) => {
+      state.timeFilter = e.target.value;
+      refreshViews();
+    });
+    document.getElementById('refreshBtn').addEventListener('click', (e) => {
+      e.preventDefault();
+      loadData();
+    });
+    document.getElementById('locateBtn').addEventListener('click', () => {
+      if (!navigator.geolocation) return showToast('Géolocalisation non supportée.');
       navigator.geolocation.getCurrentPosition(
-        pos=>map.setView([pos.coords.latitude,pos.coords.longitude],13),
-        ()=>showToast('Position introuvable.')
+        pos => { const { latitude, longitude } = pos.coords; map.setView([latitude, longitude], 13); },
+        () => showToast('Position introuvable.')
       );
     });
 
-    function showToast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.classList.add('show'); setTimeout(()=>el.classList.remove('show'),2500); }
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 2500);
+    }
 
-    // Go
-    loadData().catch(err=>{ console.error(err); showToast('Erreur de chargement des données'); document.getElementById('countBadge').textContent='Erreur'; });
+    // Charge au démarrage
+    loadData().catch(err => {
+      console.error(err);
+      showToast('Erreur de chargement des données');
+      document.getElementById('countBadge').textContent = 'Erreur';
+    });
   </script>
 </body>
 </html>
